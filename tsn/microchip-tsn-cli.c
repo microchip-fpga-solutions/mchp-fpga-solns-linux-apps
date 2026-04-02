@@ -41,7 +41,7 @@
 #define MAX_REGEX_MSGBUFF_LEN		100
 #endif
 
-#define TSN_NUM_CONFIFS 6
+#define TSN_NUM_CONFIFS 8
 #define BIT(val, x) (!!((1 << x) & val))
 #define PERCENTAGE(a, b) ((uint32_t)((100 * ((uint64_t)a)) / b))
 
@@ -69,7 +69,7 @@
 
 #define JSON_KEY_QCI_CONF				"qciconf"
 #define JSON_KEY_SOURCE_MAC_ADDRESS_CHECK		"sa_check"
-#define JSON_KEY_DESTINATION_MAC_ADDRESS_CHECK		"da_check"
+#define JSON_KEY_DST_MAC_ADDRESS_CHECK			"da_check"
 #define JSON_KEY_SOURCE_MAC_ADDRESS			"sourcemacaddr"
 #define JSON_KEY_DESTINATION_MAC_ADDRESS		"destinationmacaddr"
 
@@ -82,6 +82,32 @@
 
 #define JSON_KEY_MAC_PACKET				"macpacket"
 #define JSON_KEY_LENGTH_DEDUCT_BYTES			"lengthdeductbytes"
+#define JSON_KEY_RX_STREAMID_TIMEOUT			"rxstreamidtimeout"
+#define JSON_KEY_PRIO_QUEUE_STREAMIDS			"streamids"
+#define JSON_KEY_PRIO_QUEUE_STREAMID			"streamid"
+#define JSON_KEY_PRIO_QUEUE_VLAN_ID			"vlanid"
+#define JSON_KEY_PRIO_QUEUE_VLAN_ID_ENABLE		"vlanid_enable"
+#define JSON_KEY_PRIO_QUEUE_FRER_EN			"frer"
+#define JSON_KEY_PRIO_QUEUE_DST_MAC			"dstmac"
+#define JSON_KEY_PRIO_QUEUE_DST_MAC_ENABLE		"dstmac_enable"
+#define JSON_KEY_PRIO_QUEUE_PRIORITY_ENABLE		"priority_enable"
+#define JSON_KEY_MASK					"mask"
+#define JSON_KEY_DA					"destination_mac"
+#define JSON_KEY_VID					"vid"
+#define JSON_KEY_MAX_SDU_SIZE				"max_sdu_size"
+#define JSON_KEY_PSFP_CBS				"psfp_cbs"
+#define JSON_KEY_PSFP_EBS				"psfp_ebs"
+#define JSON_KEY_PSFP_PORT_CIR				"psfp_port_cir"
+#define JSON_KEY_PSFP_PORT_EIR				"psfp_port_eir"
+#define JSON_KEY_PSFP_PORT_FILTER_EN_DIS		"psfp_port_filter_en_dis"
+#define JSON_KEY_PSFP_PORT_FM_EN_DIS			"psfp_port_fm_en_dis"
+#define JSON_KEY_PSFP_PORT_DROP_ON_YELLOW		"psfp_port_drop_on_yellow"
+#define JSON_KEY_MAX_SDU_SIZE_EXCEED			"max_sdu_size_exceed"
+#define JSON_KEY_PSFP_CFG_UPDATE			"psfp_cfg_update"
+#define JSON_KEY_PORT_NUM				"port_num"
+#define JSON_KEY_PORT_PSFP_STREAM			"streams"
+#define JSON_KEY_STREAM_ID				"stream_id"
+#define JSON_KEY_QAV_CONF				"qavconf"
 
 #define NUM_PRIO_QUEUES					7
 
@@ -95,6 +121,7 @@
 
 /* Q0 to Q6, Default do not allow setting prio to Q7 */
 static int num_prio_queues = NUM_PRIO_QUEUES;
+static int num_stream_id_per_q;
 
 /* Get multiple configs */
 static int get_qbv_conf;
@@ -104,6 +131,8 @@ static int get_misc_ptp_tx_prioq_conf;
 static int get_misc_rx_port_id_conf;
 static int get_misc_length_deduct_byte_conf;
 static int get_all_conf;
+static int get_qav_conf;
+static int get_stats_conf;
 static int edit_mode;
 static int json_show_gcl_csv;
 static int show_gcl_remaining_cycle_time;
@@ -146,6 +175,12 @@ struct unsigned_integer_ranges time_adjust_range = {
 	}
 };
 
+struct unsigned_integer_ranges qci_mask_range = {
+	.num_ranges = 1,
+	.range = {
+		{0, 3}
+	}
+};
 struct unsigned_integer_ranges pcp_range = {
 	.num_ranges = 1,
 	.range = {
@@ -182,6 +217,7 @@ struct unsigned_integer_ranges *UINT16_RANGE = &uint16_range;
 struct unsigned_integer_ranges *UINT32_RANGE = &uint32_range;
 struct unsigned_integer_ranges *TIMEADJUST_RANGE = &time_adjust_range;
 struct unsigned_integer_ranges *PCP_RANGE = &pcp_range;
+struct unsigned_integer_ranges *QCI_MASK_RANGE = &qci_mask_range;
 struct unsigned_integer_ranges *CONTROL_LIST_LENGTH_RANGE = &control_list_length_range;
 struct unsigned_integer_ranges *PREMPT_SIZE_RANGE = &pre_empt_size_range;
 struct unsigned_integer_ranges *CRC_DEDUCT_LEN_RANGE = &crc_deduct_len_range;
@@ -214,7 +250,6 @@ typedef enum {
 	JSON_SHOW_GCL_CSV,
 	SHOW_GCL_REMAINING_CYCLE_TIME,
 	ENABLE_PRIOQ7_CONFIG,
-
 } CMDLINE_OPTIONS;
 
 /* Function to set the terminal text color to yellow */
@@ -271,7 +306,6 @@ char *last_line(char *str)
 	if (!str)
 		return NULL;
 
-
 	while (*current != '\0') {
 		if (*current == '\n')
 			lastLine = current + 1;
@@ -307,7 +341,15 @@ static void print_usage(void)
 	printf("microchip-tsn-cli [OPTIONS]\n");
 	printf("--show-devices                                Display Available Devices\n");
 	printf("--device=<devid> [--set | --get]=<conftype>   TSN Device id for set or get tsn config\n");
-	printf("--get=[qbvconf | qbuconf | qciconf | misc_ptp_tx_prioq_conf | misc_rx_port_id_conf | misc_length_deduct_byte_conf | all ] [ --json | --export-conf-file=<file path> ] [--show-gcl-csv]     Get TSN Conf by type\n");
+		printf("--get=[qbvconf | qbuconf | qciconf |\n"
+		       "       qavconf | getstats |\n"
+		       "       misc_ptp_tx_prioq_conf |\n"
+		       "       misc_rx_port_id_conf |\n"
+		       "       misc_length_deduct_byte_conf |\n"
+		       "       all ]\n"
+		       "  [ --json | --export-conf-file=<file path> ]\n"
+		       "  [--show-gcl-csv]\n"
+		       "  Get TSN Conf by type\n");
 	printf("--set=[qbvconf | qbuconf | qciconf | misc_ptp_tx_prioq_conf | misc_rx_port_id_conf | misc_length_deduct_byte_conf]  [--conf-file=<json format conf>] [--edit-mode]   Set TSN Conf by type\n");
 }
 
@@ -326,6 +368,8 @@ typedef enum {
 	QBVCONF,
 	QBUCONF,
 	QCICONF,
+	QAVCONF,
+	GETSTATS,
 	MISC_PTP_TX_PRIOQ,
 	MISC_RX_PORT_ID,
 	MISC_LENGTH_DEDUCT_BYTE,
@@ -335,6 +379,8 @@ static char tsn_configs[][MAX_TSN_CONFIG_NAME_SIZE] = {
 	"qbvconf",
 	"qbuconf",
 	"qciconf",
+	"qavconf",
+	"getstats",
 	"misc_ptp_tx_prioq_conf",
 	"misc_rx_port_id_conf",
 	"misc_length_deduct_byte_conf",
@@ -356,7 +402,6 @@ int is_valid_mac_address(char *mac)
 		if (len == 17 && (i % 3 == 2)) {
 			if (mac[i] != ':')
 				return 0;
-
 		} else {
 			if (!isxdigit(mac[i]))
 				return 0;
@@ -440,7 +485,7 @@ char *gcl_state_to_csv(uint8_t gcl_state)
 			if (!first)
 				strcat(gcl_csv_str, ", ");
 
-			sprintf(temp, "%d", i);
+			snprintf(temp, sizeof(temp), "%d", i);
 			strcat(gcl_csv_str, temp);
 			first = 0;
 		}
@@ -457,7 +502,7 @@ regex_t regex_gcl_state_csv;
 
 const char *hexdec_pattern = "^(0[xX])[0-9a-fA-F]+$";
 const char *dec_pattern = "^[0-9]+$";
-const char *gcl_state_csv_pattern = "^[0-7](,[0-7])*$";
+const char *gcl_state_csv_pattern = "^[0-7](, [0-7])*$";
 
 int regex_compile(void)
 {
@@ -632,6 +677,7 @@ static int unsigned_integer_input(char *display, int cur_value,
 	char input[MAX_USER_INPUT_LEN];
 	char numstr[MAX_USER_INPUT_LEN];
 	int number;
+
 	char *endptr;
 	int dec, hex, csv = 0;
 
@@ -779,7 +825,6 @@ static int y_n_input(char *display, int cur_value)
 				}
 				colored_printf(RED, "No input given, provide some input\n");
 				continue;
-
 			} else {
 				valid = isyesorno(ynstr);
 			}
@@ -916,7 +961,30 @@ static void *all_config_adjust(void *conf_mem, char *tsnspec)
 	else
 		return NULL;
 
-	return (conf_mem + offset);
+	return conf_mem + offset;
+}
+
+static void auto_detect_caps(__u64 devid)
+{
+	struct microchip_tsn_device dev;
+	struct microchip_tsn_caps caps;
+	int ret;
+
+	dev.tsn_dev_id = devid;
+	ret = microchip_tsn_device_get_caps(&dev, &caps);
+	if (ret) {
+		printf("Warning: Could not query device caps (err=%d), using defaults\n", ret);
+		return;
+	}
+
+	printf("Device caps: rtl_ver=%u num_queues=%u num_streamid_per_q=%u\n",
+	       caps.rtl_ver, caps.num_queues, caps.num_streamid_per_q);
+
+	if (caps.num_queues > 0)
+		num_prio_queues = caps.num_queues;
+
+	if (caps.num_streamid_per_q > 0)
+		num_stream_id_per_q = caps.num_streamid_per_q;
 }
 
 static void microchip_tsn_display_devices(void)
@@ -944,8 +1012,32 @@ static void microchip_tsn_display_devices(void)
 	}
 }
 
+static void print_stream_id(struct qbv_conf *qbvconf, int queue, int stream,
+			    struct qbv_streamid_conf *sid)
+{
+	printf("Queue[%2d] Stream[%2d] | ", queue, stream);
+	printf("Mask: %-10s (0x%04x) | ",
+	       sid->mask ? "" : "disabled", sid->mask);
+
+	if (sid->mask & 0x1) {
+		printf("MAC: %02x:%02x:%02x:%02x:%02x:%02x | ",
+		       sid->da[0], sid->da[1], sid->da[2],
+		       sid->da[3], sid->da[4], sid->da[5]);
+	} else {
+		printf("MAC: (N/A)              | ");
+	}
+
+	printf("VID: %-5d | PCP: %-2d | FRER: %-8s\n",
+	       sid->vid, sid->pcp,
+	       sid->frer ? "enabled" : "disabled");
+}
+
 static void display_tsn_conf(void *conf_mem, char *tsnspec, char *json_data)
 {
+	struct tsn_statistics *gettsnstats;
+	struct qav_conf *qavconf;
+	int j;
+
 	struct qbv_conf *qbvconf;
 	struct qbu_conf *qbuconf;
 	struct qci_conf *qciconf;
@@ -956,6 +1048,7 @@ static void display_tsn_conf(void *conf_mem, char *tsnspec, char *json_data)
 	int all = 0;
 	unsigned int gate_state = 0;
 	unsigned char mac_str[MAX_USER_INPUT_MACSTR_LEN];
+
 	cJSON *json = NULL;
 	cJSON *jqbvconf = NULL;
 	cJSON *jqbvconf_prioq = NULL;
@@ -967,6 +1060,8 @@ static void display_tsn_conf(void *conf_mem, char *tsnspec, char *json_data)
 	cJSON *jmiscrxportidconf = NULL;
 	cJSON *jmiscptptxprioqconf = NULL;
 	cJSON *jmiscldbconf = NULL;
+	cJSON *jqavconf = NULL;
+	cJSON *jqavconf_field = NULL;
 
 	if (strcmp("all", tsnspec) == 0) {
 		all = 1;
@@ -978,17 +1073,19 @@ static void display_tsn_conf(void *conf_mem, char *tsnspec, char *json_data)
 
 	if (all || strcmp(tsnspec, "qbvconf") == 0) {
 		qbvconf =  (struct qbv_conf *)
-			   (all ? all_config_adjust(conf_mem, "qbvconf") : conf_mem);
+			(all ? all_config_adjust(conf_mem, "qbvconf") : conf_mem);
 		if (json_data) {
 			jqbvconf = cJSON_AddObjectToObject(json, JSON_KEY_QBV_CONF);
 			cJSON_AddNumberToObject(jqbvconf, JSON_KEY_CYCLE_TIME,
-						qbvconf->cycle_time);
+					qbvconf->cycle_time);
 			cJSON_AddNumberToObject(jqbvconf, JSON_KEY_BASE_TIME_SEC,
-						qbvconf->basetime_sec);
+					qbvconf->basetime_sec);
 			cJSON_AddNumberToObject(jqbvconf, JSON_KEY_BASE_TIME_NSEC,
-						qbvconf->basetime_nsec);
+					qbvconf->basetime_nsec);
 			cJSON_AddNumberToObject(jqbvconf, JSON_KEY_BASE_TIME_ADJUST,
-						qbvconf->basetime_adjust);
+					qbvconf->basetime_adjust);
+			cJSON_AddNumberToObject(jqbvconf, JSON_KEY_RX_STREAMID_TIMEOUT,
+						qbvconf->rx_streamid_reset);
 			cJSON_AddNumberToObject(jqbvconf, JSON_KEY_GATE_CONTROL_LIST_COUNT,
 						qbvconf->control_list_length);
 			if (json_show_gcl_csv)
@@ -999,12 +1096,10 @@ static void display_tsn_conf(void *conf_mem, char *tsnspec, char *json_data)
 			else
 				cJSON_AddNumberToObject(jqbvconf, JSON_KEY_INITIAL_GATE_STATE,
 							qbvconf->initial_gate_state);
-
 			if (qbvconf->priority_enable)
 				cJSON_AddTrueToObject(jqbvconf, JSON_KEY_PRIORITY_ENABLE);
 			else
 				cJSON_AddFalseToObject(jqbvconf, JSON_KEY_PRIORITY_ENABLE);
-
 			if (qbvconf->gate_enable)
 				cJSON_AddTrueToObject(jqbvconf, JSON_KEY_GATE_ENABLE);
 			else
@@ -1012,6 +1107,7 @@ static void display_tsn_conf(void *conf_mem, char *tsnspec, char *json_data)
 
 			jqbvconf_prioq = cJSON_CreateArray();
 			jqbvconf_gcl = cJSON_CreateArray();
+
 			for (i = 0; i < num_prio_queues; i++) {
 				jqbvconf_prioq_elem = cJSON_CreateObject();
 				cJSON_AddItemToObject(jqbvconf_prioq_elem, JSON_KEY_PRIO_QUEUE_NUM,
@@ -1029,74 +1125,97 @@ static void display_tsn_conf(void *conf_mem, char *tsnspec, char *json_data)
 				cJSON_AddItemToArray(jqbvconf_prioq, jqbvconf_prioq_elem);
 			}
 			cJSON_AddItemToObject(jqbvconf, JSON_KEY_PRIO_QUEUES, jqbvconf_prioq);
+
 			for (i = 0; i < qbvconf->control_list_length; i++) {
 				jqbvconf_gcle = cJSON_CreateObject();
 				cJSON_AddItemToObject(jqbvconf_gcle,
-						      JSON_KEY_GATE_CONTROL_LIST_INDEX,
-						      cJSON_CreateNumber(i));
+						JSON_KEY_GATE_CONTROL_LIST_INDEX,
+						cJSON_CreateNumber(i));
 				if (json_show_gcl_csv)
 					cJSON_AddItemToObject(jqbvconf_gcle,
-							      JSON_KEY_GATE_CONTROL_LIST_GATE_STATE,
-							      cJSON_CreateString
-							      ((char *)gcl_state_to_csv
-							      (qbvconf->gcle[i].gate_state)));
+							JSON_KEY_GATE_CONTROL_LIST_GATE_STATE,
+							cJSON_CreateString
+							((char *)gcl_state_to_csv
+							 (qbvconf->gcle[i].gate_state)));
 				else
 					cJSON_AddItemToObject(jqbvconf_gcle,
-							      JSON_KEY_GATE_CONTROL_LIST_GATE_STATE,
-							      cJSON_CreateNumber
-							      (qbvconf->gcle[i].gate_state));
+							JSON_KEY_GATE_CONTROL_LIST_GATE_STATE,
+							cJSON_CreateNumber
+							(qbvconf->gcle[i].gate_state));
 				cJSON_AddItemToObject(jqbvconf_gcle,
-						      JSON_KEY_GATE_CONTROL_LIST_TIME_INTERVAL,
-						      cJSON_CreateNumber
-						      (qbvconf->gcle[i].time_interval));
+						JSON_KEY_GATE_CONTROL_LIST_TIME_INTERVAL,
+						cJSON_CreateNumber
+						(qbvconf->gcle[i].time_interval));
 				cJSON_AddItemToArray(jqbvconf_gcl, jqbvconf_gcle);
 			}
 			cJSON_AddItemToObject(jqbvconf, JSON_KEY_GATE_CONTROL_LIST, jqbvconf_gcl);
 		} else {
 			printf("\n<<<<<<<<QBVCONF>>>>>>>>>>>>>>>>>>>\n");
-			printf("cycle_time : %u [0x%x]\n", qbvconf->cycle_time,
-			       qbvconf->cycle_time);
-			printf("basetime_sec : %llu [0x%llx]\n", qbvconf->basetime_sec,
-			       qbvconf->basetime_sec);
+			printf("cycle_time : %llu [0x%llx]\n",
+			       (unsigned long long)qbvconf->cycle_time,
+			       (unsigned long long)qbvconf->cycle_time);
+			printf("basetime_sec : %llu [0x%llx]\n",
+			       (unsigned long long)qbvconf->basetime_sec,
+			       (unsigned long long)qbvconf->basetime_sec);
 			printf("basetime_nsec : %u [0x%x]\n", qbvconf->basetime_nsec,
 			       qbvconf->basetime_nsec);
 			printf("basetime_adjust : %u [0x%x]\n", qbvconf->basetime_adjust,
 			       qbvconf->basetime_adjust);
+			if (num_stream_id_per_q > 0)
+				printf("rx_streamid_timeout_reset : %u [0x%x]\n",
+				       qbvconf->rx_streamid_reset,
+				       qbvconf->rx_streamid_reset);
 			printf("gate_enable : %s\n",
 			       qbvconf->gate_enable ? GREEN "Enabled" RESET : RED "Disabled" RESET);
 			printf("priority_enable : %s\n",
 			       qbvconf->priority_enable ? GREEN "Enabled" RESET :
 			       RED "Disabled" RESET);
+
 			for (i = 0; i < num_prio_queues; i++)
 				printf("priority Queue %d : %s\n", i,
-				       qbvconf->priority_queue_enable & (1 << i)
-				       ? GREEN "Enabled" RESET : RED "Disabled" RESET);
+					qbvconf->priority_queue_enable & (1 << i)
+					? GREEN "Enabled" RESET : RED "Disabled" RESET);
+
+			printf("\n");
+
+			if (num_stream_id_per_q > 0) {
+				for (i = 0; i < num_prio_queues; i++) {
+					for (j = 0; j < num_stream_id_per_q; ++j) {
+						struct qbv_streamid_conf *sid =
+							&qbvconf->priority_queue_prios_que[i]
+								.streamid[j];
+
+						print_stream_id(qbvconf, i, j, sid);
+					}
+					printf("\n");
+				}
+			}
 
 			for (i = 0; i < num_prio_queues; i++)
 				printf("priority Queue %d prio : %d\n", i,
-				       qbvconf->priority_queue_prios[i]);
+						qbvconf->priority_queue_prios[i]);
 
 			printf("control_list_length : %u [0x%x]\n", qbvconf->control_list_length,
-			       qbvconf->control_list_length);
+					qbvconf->control_list_length);
 			printf("initial_gate_state : %u [0x%x] [%s]\n",
-			       qbvconf->initial_gate_state,
-			       qbvconf->initial_gate_state,
-			       gcl_state_to_csv(qbvconf->initial_gate_state));
+					qbvconf->initial_gate_state,
+					qbvconf->initial_gate_state,
+					gcl_state_to_csv(qbvconf->initial_gate_state));
 			if (qbvconf->control_list_length > 0) {
 				printf("Entry    Gate                  Time Interval\n");
 				for (i = 0; i < qbvconf->control_list_length; i++) {
 					gate_state = qbvconf->gcle[i].gate_state;
 					printf(YELLOW" %02x       %02x "RESET"[%s %s %s %s %s %s %s %s]     %" PRIu32 "\n",
-					       i, gate_state,
-					       COLOR_BIT(gate_state, 7),
-					       COLOR_BIT(gate_state, 6),
-					       COLOR_BIT(gate_state, 5),
-					       COLOR_BIT(gate_state, 4),
-					       COLOR_BIT(gate_state, 3),
-					       COLOR_BIT(gate_state, 2),
-					       COLOR_BIT(gate_state, 1),
-					       COLOR_BIT(gate_state, 0),
-					       qbvconf->gcle[i].time_interval);
+							i, gate_state,
+							COLOR_BIT(gate_state, 7),
+							COLOR_BIT(gate_state, 6),
+							COLOR_BIT(gate_state, 5),
+							COLOR_BIT(gate_state, 4),
+							COLOR_BIT(gate_state, 3),
+							COLOR_BIT(gate_state, 2),
+							COLOR_BIT(gate_state, 1),
+							COLOR_BIT(gate_state, 0),
+							qbvconf->gcle[i].time_interval);
 				}
 				printf("____________________________________\n");
 			}
@@ -1104,7 +1223,7 @@ static void display_tsn_conf(void *conf_mem, char *tsnspec, char *json_data)
 	}
 	if (all || strcmp(tsnspec, "qbuconf") == 0) {
 		qbuconf =  (struct qbu_conf *)
-			   (all ? all_config_adjust(conf_mem, "qbuconf") : conf_mem);
+			(all ? all_config_adjust(conf_mem, "qbuconf") : conf_mem);
 		if (json_data) {
 			jqbuconf = cJSON_AddObjectToObject(json, JSON_KEY_QBU_CONF);
 			if (qbuconf->pre_empt_en)
@@ -1112,7 +1231,7 @@ static void display_tsn_conf(void *conf_mem, char *tsnspec, char *json_data)
 			else
 				cJSON_AddFalseToObject(jqbuconf, JSON_KEY_PRE_EMPTION_ENABLE);
 			cJSON_AddNumberToObject(jqbuconf, JSON_KEY_PRE_EMPTION_SIZE,
-						qbuconf->pre_empt_size);
+					qbuconf->pre_empt_size);
 		} else {
 			printf("\n<<<<<<<<QBUCONF>>>>>>>>>>>>>>>>>>>\n");
 			printf("pre_empt enable : %s\n", qbuconf->pre_empt_en ? "True" : "False");
@@ -1121,46 +1240,127 @@ static void display_tsn_conf(void *conf_mem, char *tsnspec, char *json_data)
 		}
 	}
 	if (all || strcmp(tsnspec, "qciconf") == 0) {
-		qciconf =  (struct qci_conf *)
-			   (all ? all_config_adjust(conf_mem, "qciconf") : conf_mem);
-		if (json_data) {
-			jqciconf = cJSON_AddObjectToObject(json, JSON_KEY_QCI_CONF);
-			if (qciconf->sa_check)
-				cJSON_AddTrueToObject(jqciconf, JSON_KEY_SOURCE_MAC_ADDRESS_CHECK);
-			else
-				cJSON_AddFalseToObject(jqciconf, JSON_KEY_SOURCE_MAC_ADDRESS_CHECK);
-			if (qciconf->da_check)
-				cJSON_AddTrueToObject(jqciconf,
-						      JSON_KEY_DESTINATION_MAC_ADDRESS_CHECK);
-			else
-				cJSON_AddFalseToObject(jqciconf,
-						       JSON_KEY_DESTINATION_MAC_ADDRESS_CHECK);
-			mac_addr_to_str(qciconf->source_mac_addr, mac_str);
-			cJSON_AddStringToObject(jqciconf, JSON_KEY_SOURCE_MAC_ADDRESS,
-						(char *)mac_str);
-			mac_addr_to_str(qciconf->destination_mac_addr, mac_str);
-			cJSON_AddStringToObject(jqciconf, JSON_KEY_DESTINATION_MAC_ADDRESS,
-						(char *)mac_str);
+		if (num_stream_id_per_q == 0) {
+			qciconf =  (struct qci_conf *)
+				(all ? all_config_adjust(conf_mem, "qciconf") : conf_mem);
+			if (json_data) {
+				jqciconf = cJSON_AddObjectToObject(json, JSON_KEY_QCI_CONF);
+				if (qciconf->sa_check)
+					cJSON_AddTrueToObject(jqciconf,
+							      JSON_KEY_SOURCE_MAC_ADDRESS_CHECK);
+				else
+					cJSON_AddFalseToObject(jqciconf,
+							       JSON_KEY_SOURCE_MAC_ADDRESS_CHECK);
+				if (qciconf->da_check)
+					cJSON_AddTrueToObject(jqciconf,
+							      JSON_KEY_DST_MAC_ADDRESS_CHECK);
+				else
+					cJSON_AddFalseToObject(jqciconf,
+							       JSON_KEY_DST_MAC_ADDRESS_CHECK);
+				mac_addr_to_str(qciconf->source_mac_addr, mac_str);
+				cJSON_AddStringToObject(jqciconf, JSON_KEY_SOURCE_MAC_ADDRESS,
+							(char *)mac_str);
+				mac_addr_to_str(qciconf->destination_mac_addr, mac_str);
+				cJSON_AddStringToObject(jqciconf, JSON_KEY_DESTINATION_MAC_ADDRESS,
+							(char *)mac_str);
+			} else {
+				printf("\n<<<<<<<<QCICONF>>>>>>>>>>>>>>>>>>>\n");
+				printf("sa_check : %s\n", qciconf->sa_check ? "True" : "False");
+				printf("da_check : %s\n", qciconf->da_check ? "True" : "False");
+				mac_addr_to_str(qciconf->destination_mac_addr, mac_str);
+				printf("Destination MAC Addr : %s\n", mac_str);
+				mac_addr_to_str(qciconf->source_mac_addr, mac_str);
+				printf("Source MAC Addr : %s\n", mac_str);
+				printf("____________________________________\n");
+			}
 		} else {
+			struct qci_conf_v3 *qciconf_v3;
+
+			qciconf_v3 = (struct qci_conf_v3 *)
+				(all ? all_config_adjust(conf_mem, "qciconf") : conf_mem);
+
 			printf("\n<<<<<<<<QCICONF>>>>>>>>>>>>>>>>>>>\n");
-			printf("sa_check : %s\n", qciconf->sa_check ? "True" : "False");
-			printf("da_check : %s\n", qciconf->da_check ? "True" : "False");
-			mac_addr_to_str(qciconf->destination_mac_addr, mac_str);
-			printf("Destination MAC Addr : %s\n", mac_str);
-			mac_addr_to_str(qciconf->source_mac_addr, mac_str);
-			printf("Source MAC Addr : %s\n", mac_str);
+			for (int port_idx = 0; port_idx < MICROCHIP_TSN_NUM_PSFP_port; port_idx++) {
+				printf("\n Port %d:\n\n", port_idx);
+				printf("%-8s %-6s %-17s %-6s", "stream", "mask", "da", "vid");
+				printf(" %-12s %-12s %-12s", "max_sdu", "cbs", "ebs");
+				printf(" %-13s %-13s", "cir", "eir");
+				printf(" %-14s %-14s", "filter_en", "fm_en");
+				printf(" %-14s %-14s\n", "drop_yel", "sdu_exc");
+				printf("----------------------------");
+				printf("----------------------------");
+				printf("-------------------------------\n");
+
+				for (int stream_idx = 0;
+				     stream_idx < MICROCHIP_TSN_NUM_PSFP_port_STREAM_ID;
+				     stream_idx++) {
+					struct psfp_stream_conf *stream =
+					       &qciconf_v3->ports[port_idx].port_psfp[stream_idx];
+					char mac_str_v3[18] = {0};
+
+					printf("%-8d ", stream_idx);
+					printf("0x%02x   ", (unsigned int)(stream->mask & 0xFF));
+
+					if (stream->mask & 0x1)
+						mac_addr_to_str(stream->da,
+								(unsigned char *)mac_str_v3);
+					printf("%-17s ", mac_str_v3);
+
+					if (stream->mask & 0x2)
+						printf("%-6d ", stream->vid);
+					else
+						printf("%-6s ", "N/A");
+
+					printf("%-12d ", stream->max_sdu_size);
+					printf("%-12u ", stream->psfp_cbs);
+					printf("%-12u ", stream->psfp_ebs);
+					printf("%-13u ", stream->psfp_port_cir);
+					printf("%-13u ", stream->psfp_port_eir);
+					printf("%-14s ", stream->psfp_port_filter_en_dis
+					       ? "True" : "False");
+					printf("%-14s ", stream->psfp_port_fm_en_dis
+					       ? "True" : "False");
+					printf("%-14s ", stream->psfp_port_drop_on_yellow
+					       ? "True" : "False");
+					printf("%-14s\n", stream->max_sdu_size_exceed
+					       ? "True" : "False");
+				}
+			}
+			printf("____________________________________\n");
+		}
+	}
+	if (all || strcmp(tsnspec, "qavconf") == 0) {
+		qavconf =  (struct qav_conf *)
+			(all ? all_config_adjust(conf_mem, "qavconf") : conf_mem);
+		if (json_data) {
+			jqavconf = cJSON_AddObjectToObject(json, JSON_KEY_QAV_CONF);
+			cJSON_AddNumberToObject(jqavconf, "num_cbs_queues",
+						qavconf->num_cbs_queues);
+		} else {
+			printf("\n<<<<<<<<QAVCONF>>>>>>>>>>>>>>>>>>>\n");
+			printf("____________________________________\n");
+			printf("Number of CBS Queues: %d\n", qavconf->num_cbs_queues);
+			for (i = 0; i < qavconf->num_cbs_queues; i++) {
+				printf("Queue %d:\n", i);
+				printf("  cbs_q_num: %d\n", qavconf->cqc[i].cbs_q_num);
+				printf("  cbs_en: %d\n", qavconf->cqc[i].cbs_en);
+				printf("  cbs_inc: %d\n", qavconf->cqc[i].cbs_inc);
+				printf("  cbs_dec: %d\n", qavconf->cqc[i].cbs_dec);
+				printf("  cred_min: %d\n", qavconf->cqc[i].cred_min);
+				printf("  cred_max: %d\n", qavconf->cqc[i].cred_max);
+			}
 			printf("____________________________________\n");
 		}
 	}
 	if (all || strcmp(tsnspec, "misc_ptp_tx_prioq_conf") == 0) {
 		miscptptxprioqconf =  (struct misc_ptp_tx_prioq_conf *)
-				      (all ? all_config_adjust
-				      (conf_mem, "misc_ptp_tx_prioq_conf") : conf_mem);
+			(all ? all_config_adjust
+			 (conf_mem, "misc_ptp_tx_prioq_conf") : conf_mem);
 		if (json_data) {
 			jmiscptptxprioqconf = cJSON_AddObjectToObject(json, JSON_KEY_PTP_CONF);
 			cJSON_AddNumberToObject(jmiscptptxprioqconf,
-						JSON_KEY_PTP_XMIT_PRIORITY_QUEUE,
-						miscptptxprioqconf->ptp_tx_prioq);
+					JSON_KEY_PTP_XMIT_PRIORITY_QUEUE,
+					miscptptxprioqconf->ptp_tx_prioq);
 		} else {
 			printf("\n<<<<MISC_PTP_TX_PRIOQ_CONF>>>>>>>>\n");
 			printf("ptp tx prioq : %d\n", miscptptxprioqconf->ptp_tx_prioq);
@@ -1169,42 +1369,95 @@ static void display_tsn_conf(void *conf_mem, char *tsnspec, char *json_data)
 	}
 	if (all || strcmp(tsnspec, "misc_rx_port_id_conf") == 0) {
 		miscrxportidconf = (struct misc_rx_port_id_conf *)
-				   (all ?
-				   all_config_adjust(conf_mem, "misc_rx_port_id_conf") : conf_mem);
+			(all ?
+			 all_config_adjust(conf_mem, "misc_rx_port_id_conf") : conf_mem);
 		if (json_data) {
 			jmiscrxportidconf = cJSON_AddObjectToObject(json, JSON_KEY_RX_CONF);
 			if (miscrxportidconf->port_id_rx_check)
 				cJSON_AddTrueToObject(jmiscrxportidconf,
-						      JSON_KEY_PORT_ID_RECV_CHECK);
+						JSON_KEY_PORT_ID_RECV_CHECK);
 			else
 				cJSON_AddFalseToObject(jmiscrxportidconf,
-						       JSON_KEY_PORT_ID_RECV_CHECK);
+						JSON_KEY_PORT_ID_RECV_CHECK);
 			cJSON_AddNumberToObject(jmiscrxportidconf, JSON_KEY_PORT_ID_RECV,
-						miscrxportidconf->port_id_rx);
+					miscrxportidconf->port_id_rx);
 		} else {
 			printf("\n<<<<MISC_RX_PORT_ID_CONF>>>>>>>>>>\n");
 			printf("port_id_rx_check : %s\n",
-			       miscrxportidconf->port_id_rx_check ? "True" : "False");
+					miscrxportidconf->port_id_rx_check ? "True" : "False");
 			printf("port_id_rx : %d\n", miscrxportidconf->port_id_rx);
 			printf("____________________________________\n");
 		}
 	}
 	if (all || strcmp(tsnspec, "misc_length_deduct_byte_conf") == 0) {
 		miscldbconf = (struct misc_length_deduct_byte_conf *)
-			      (all ? all_config_adjust
-			      (conf_mem, "misc_length_deduct_byte_conf") : conf_mem);
+			(all ? all_config_adjust
+			 (conf_mem, "misc_length_deduct_byte_conf") : conf_mem);
 		if (json_data) {
 			jmiscldbconf = cJSON_AddObjectToObject(json, JSON_KEY_MAC_PACKET);
 			cJSON_AddNumberToObject(jmiscldbconf, JSON_KEY_LENGTH_DEDUCT_BYTES,
-						miscldbconf->crc_deduct_len);
+					miscldbconf->crc_deduct_len);
 		} else {
 			printf("\n<<<<MISC_LENGTH_DEDUCT_BYTE_CONF>>\n");
 			printf("MAC packet length deduct bytes : %u\n",
-			       miscldbconf->crc_deduct_len);
+					miscldbconf->crc_deduct_len);
 			printf("____________________________________\n");
 		}
 	}
+	if (all || strcmp(tsnspec, "getstats") == 0) {
+		gettsnstats =  (struct tsn_statistics *)
+			(all ? all_config_adjust(conf_mem, "getstats") : conf_mem);
+		printf("\n<<<<<<<<TSN STATS>>>>>>>>>>>>>>>>>>>\n");
+		printf("____________________________________\n");
 
+		for (i = 0; i < MICROCHIP_TSN_NUM_PRIO_QUEUES_V3; i++) {
+			for (j = 0; j < MICROCHIP_TSN_NUM_STREAM_ID_PER_Q_V3; j++) {
+				printf(" packets dropped in Queue %d stream-id %d are : %u\n", i, j,
+				       gettsnstats->queues[i].stream_info[j].packets_dropped);
+				printf(" packets sent in Queue %d stream-id %d are : %u\n\n", i, j,
+				       gettsnstats->queues[i].stream_info[j].packets_sent);
+			}
+		}
+		printf("--------------------------------------");
+		printf("-----------------------------------\n");
+		printf("Number of RX preemption packets dropped on port 0  : %10u\n",
+		       gettsnstats->rx_port0_prmpt_pkts_drop);
+		printf("Number of RX preemption packets received on port 0 : %10u\n",
+		       gettsnstats->rx_port0_prmpt_pkts_rcvd);
+		printf("Number of RX Express packets dropped on port 0     : %10u\n",
+		       gettsnstats->rx_port0_exp_pkts_drop);
+		printf("Number of RX Express packets received on port 0    : %10u\n",
+		       gettsnstats->rx_port0_exp_pkts_rcvd);
+		printf("Number of RX preemption packets dropped on port 1  : %10u\n",
+		       gettsnstats->rx_port1_prmpt_pkts_drop);
+		printf("Number of RX preemption packets received on port 1 : %10u\n",
+		       gettsnstats->rx_port1_prmpt_pkts_rcvd);
+		printf("Number of RX Express packets dropped on port 1     : %10u\n",
+		       gettsnstats->rx_port1_exp_pkts_drop);
+		printf("Number of RX Express packets received on port 1    : %10u\n",
+		       gettsnstats->rx_port1_exp_pkts_rcvd);
+		printf("Number of TX Express packets port 0                : %10u\n",
+		       gettsnstats->tx_port0_exp_pkts);
+		printf("Number of TX preemption packets port 0             : %10u\n",
+		       gettsnstats->tx_port0_prmpt_pkts);
+		printf("Number of TX Express packets port 1                : %10u\n",
+		       gettsnstats->tx_port1_exp_pkts);
+		printf("Number of TX preemption packets port 1             : %10u\n",
+		       gettsnstats->tx_port1_prmpt_pkts);
+		printf("--------------------------------------");
+		printf("-----------------------------------\n");
+		for (i = 0; i < MICROCHIP_TSN_NUM_PSFP_port; i++) {
+			for (j = 0; j < MICROCHIP_TSN_NUM_PSFP_port_STREAM_ID; j++) {
+				printf(" PFSP pkts rcvd port %d sid %d: %u\n", i, j,
+				       gettsnstats->ports[i].pfsp_stream_info[j].pfsp_packets_rcvd);
+				printf(" PFSP pkts drop port %d sid %d: %u\n\n", i, j,
+				       gettsnstats->ports[i]
+					.pfsp_stream_info[j]
+					.pfsp_packets_dropped);
+			}
+		}
+		printf("____________________________________\n");
+	}
 	if (json_data) {
 		strcpy(json_data, cJSON_Print(json));
 		cJSON_Delete(json);
@@ -1212,8 +1465,11 @@ static void display_tsn_conf(void *conf_mem, char *tsnspec, char *json_data)
 }
 
 static void microchip_tsn_get_config(__u64 devid, char *tsnspec, int json_format,
-				     char *json_file_path)
+		char *json_file_path)
 {
+	struct tsn_statistics *gettsnstats;
+	struct qav_conf *qavconf;
+
 	void *conf_mem;
 	struct qbv_conf *qbvconf;
 	struct qbu_conf *qbuconf;
@@ -1222,6 +1478,7 @@ static void microchip_tsn_get_config(__u64 devid, char *tsnspec, int json_format
 	struct misc_ptp_tx_prioq_conf *miscptptxprioqconf;
 	struct misc_length_deduct_byte_conf *miscldbconf;
 	struct microchip_tsn_device dev;
+
 	char *json_data = NULL;
 	FILE *fp;
 	int malloc_size;
@@ -1229,7 +1486,7 @@ static void microchip_tsn_get_config(__u64 devid, char *tsnspec, int json_format
 
 	printf("tsn get devid : %llx, tsnspec :%s\n", devid, tsnspec);
 	if (strcmp(tsnspec, "all") == 0)
-		malloc_size  = TSN_NUM_CONFIFS * MAX_TSN_CONFIG_SIZE;
+		malloc_size = TSN_NUM_CONFIFS * MAX_TSN_CONFIG_SIZE;
 	else
 		malloc_size = MAX_TSN_CONFIG_SIZE;
 
@@ -1253,17 +1510,19 @@ static void microchip_tsn_get_config(__u64 devid, char *tsnspec, int json_format
 	miscrxportidconf = (struct misc_rx_port_id_conf *)conf_mem;
 	miscptptxprioqconf = (struct misc_ptp_tx_prioq_conf *)conf_mem;
 	miscldbconf = (struct misc_length_deduct_byte_conf *)conf_mem;
+	qavconf = (struct qav_conf *)conf_mem;
+	gettsnstats = (struct tsn_statistics *)conf_mem;
 
 	if (strcmp(tsnspec, "all") == 0) {
 		qbvconf = (struct qbv_conf *)all_config_adjust(conf_mem, "qbvconf");
 		qbuconf = (struct qbu_conf *)all_config_adjust(conf_mem, "qbuconf");
 		qciconf = (struct qci_conf *)all_config_adjust(conf_mem, "qciconf");
 		miscrxportidconf = (struct misc_rx_port_id_conf *)all_config_adjust(conf_mem,
-				   "misc_rx_port_id_conf");
+				"misc_rx_port_id_conf");
 		miscptptxprioqconf = (struct misc_ptp_tx_prioq_conf *)all_config_adjust(conf_mem,
-				     "misc_ptp_tx_prioq_conf");
+				"misc_ptp_tx_prioq_conf");
 		miscldbconf = (struct misc_length_deduct_byte_conf *)all_config_adjust(conf_mem,
-			      "misc_length_deduct_byte_conf");
+				"misc_length_deduct_byte_conf");
 	}
 
 	dev.tsn_dev_id = devid;
@@ -1273,7 +1532,16 @@ static void microchip_tsn_get_config(__u64 devid, char *tsnspec, int json_format
 	} else if (strcmp(tsnspec, "qbuconf") == 0) {
 		ret = microchip_tsn_device_get_qbu_conf(&dev, qbuconf);
 	} else if (strcmp(tsnspec, "qciconf") == 0) {
-		ret = microchip_tsn_device_get_qci_conf(&dev, qciconf);
+		//ret = microchip_tsn_device_get_qci_conf(&dev, qciconf);
+		if (num_stream_id_per_q == 0)
+			ret = microchip_tsn_device_get_qci_conf(&dev, qciconf);
+		else
+			ret = microchip_tsn_device_get_qci_conf_v3(&dev,
+								   (struct qci_conf_v3 *)conf_mem);
+	} else if (strcmp(tsnspec, "qavconf") == 0) {
+		ret = microchip_tsn_device_get_qav_conf(&dev, qavconf);
+	} else if (strcmp(tsnspec, "getstats") == 0) {
+		ret = microchip_tsn_device_get_streamid_stats(&dev, gettsnstats);
 	} else if (strcmp(tsnspec, "misc_rx_port_id_conf") == 0) {
 		ret = microchip_tsn_misc_get_rx_port_id(&dev, miscrxportidconf);
 	} else if (strcmp(tsnspec, "misc_ptp_tx_prioq_conf") == 0) {
@@ -1296,17 +1564,17 @@ static void microchip_tsn_get_config(__u64 devid, char *tsnspec, int json_format
 		ret = microchip_tsn_misc_get_rx_port_id(&dev, miscrxportidconf);
 		if (ret)
 			printf("Getting Config %s failed with error : %d\n", "misc_rx_port_id_conf",
-			       ret);
+					ret);
 
 		ret = microchip_tsn_misc_get_tx_ptp_prioq(&dev, miscptptxprioqconf);
 		if (ret)
 			printf("Getting Config %s failed with error : %d\n",
-			       "misc_ptp_tx_prioq_conf", ret);
+					"misc_ptp_tx_prioq_conf", ret);
 
 		ret = microchip_tsn_misc_get_length_deduct_byte(&dev, miscldbconf);
 		if (ret)
 			printf("Getting Config %s failed with error : %d\n",
-			       "misc_length_deduct_byte_conf", ret);
+					"misc_length_deduct_byte_conf", ret);
 	}
 	printf("Get Config done\n");
 
@@ -1340,6 +1608,7 @@ static void microchip_tsn_get_config(__u64 devid, char *tsnspec, int json_format
 
 static void input_tsn_conf(void *conf_mem, char *tsnspec)
 {
+	struct qav_conf *qavconf;
 	struct qbv_conf *qbvconf;
 	struct qbu_conf *qbuconf;
 	struct qci_conf *qciconf;
@@ -1357,19 +1626,19 @@ static void input_tsn_conf(void *conf_mem, char *tsnspec)
 	if (strcmp(tsnspec, "qbvconf") == 0) {
 		qbvconf = (struct qbv_conf *)conf_mem;
 		uint_input = unsigned_integer_input("cycle_time", qbvconf->cycle_time,
-						    UINT32_RANGE);
+				UINT32_RANGE);
 		qbvconf->cycle_time = uint_input;
 
 		uint_input = unsigned_integer_input("basetime_sec", qbvconf->basetime_sec,
-						    UINT32_RANGE);
+				UINT32_RANGE);
 		qbvconf->basetime_sec = uint_input;
 
 		uint_input = unsigned_integer_input("basetime_nsec", qbvconf->basetime_nsec,
-						    UINT32_RANGE);
+				UINT32_RANGE);
 		qbvconf->basetime_nsec = uint_input;
 
 		uint_input = unsigned_integer_input("basetime_adjust", qbvconf->basetime_adjust,
-						    TIMEADJUST_RANGE);
+				TIMEADJUST_RANGE);
 		qbvconf->basetime_adjust = uint_input;
 
 		uint_input = y_n_input("priority_enable", qbvconf->priority_enable);
@@ -1379,7 +1648,7 @@ static void input_tsn_conf(void *conf_mem, char *tsnspec)
 		qbvconf->gate_enable = uint_input;
 
 		for (i = 0; i < num_prio_queues; i++) {
-			sprintf(prioq_str, "priority Queue %d Enable", i);
+			snprintf(prioq_str, sizeof(prioq_str), "priority Queue %d Enable", i);
 			prioqen = y_n_input(prioq_str, qbvconf->priority_queue_enable & (1 << i));
 			qbvconf->priority_queue_enable &=  ~(1U << i);
 			qbvconf->priority_queue_enable |= prioqen ? (1U << i) : 0;
@@ -1387,19 +1656,19 @@ static void input_tsn_conf(void *conf_mem, char *tsnspec)
 		printf("Priority Queue Enable : %02x\n", qbvconf->priority_queue_enable);
 
 		for (i = 0; i < num_prio_queues; i++) {
-			sprintf(prioq_str, "priority Queue %d prio", i);
+			snprintf(prioq_str, sizeof(prioq_str), "priority Queue %d prio", i);
 			uint_input = unsigned_integer_input(prioq_str,
-							    qbvconf->priority_queue_prios[i],
-							    PCP_RANGE);
+					qbvconf->priority_queue_prios[i],
+					PCP_RANGE);
 			qbvconf->priority_queue_prios[i] = uint_input;
 		}
 		uint_input = unsigned_integer_input("initial_gate_state",
-						    qbvconf->initial_gate_state, UINT8_RANGE);
+				qbvconf->initial_gate_state, UINT8_RANGE);
 		qbvconf->initial_gate_state = uint_input;
 
 		uint_input = unsigned_integer_input("control_list_length",
-						    qbvconf->control_list_length,
-						    CONTROL_LIST_LENGTH_RANGE);
+				qbvconf->control_list_length,
+				CONTROL_LIST_LENGTH_RANGE);
 		qbvconf->control_list_length = uint_input;
 
 		remaining_cycle_time = qbvconf->cycle_time;
@@ -1407,20 +1676,20 @@ static void input_tsn_conf(void *conf_mem, char *tsnspec)
 			if (show_gcl_remaining_cycle_time && remaining_cycle_time < 0)
 				colored_printf(RED, "Warning, cycle time has been utilized\n");
 
-			sprintf(gcl_str, "GCL %02d State", i);
+			snprintf(gcl_str, sizeof(gcl_str), "GCL %02d State", i);
 			uint_input = unsigned_integer_input(gcl_str,
-							    qbvconf->gcle[i].gate_state,
-							    UINT8_RANGE);
+					qbvconf->gcle[i].gate_state,
+					UINT8_RANGE);
 			qbvconf->gcle[i].gate_state = uint_input;
 
 			if (show_gcl_remaining_cycle_time) {
 				percentage_string(percent_str, remaining_cycle_time,
-						  qbvconf->cycle_time);
-				sprintf(gcl_str,
-					"GCL %02d, Remaining cycle time : %u[%s]\nTime Interval",
-					i, remaining_cycle_time, percent_str);
+						qbvconf->cycle_time);
+				snprintf(gcl_str, sizeof(gcl_str),
+					 "GCL %02d, Remaining cycle time : %u[%s]\nTime Interval",
+					 i, remaining_cycle_time, percent_str);
 			} else {
-				sprintf(gcl_str, "GCL%02d Time Interval", i);
+				snprintf(gcl_str, sizeof(gcl_str), "GCL%02d Time Interval", i);
 			}
 			uint_input = unsigned_integer_input(gcl_str, qbvconf->gcle[i].time_interval,
 							    UINT32_RANGE);
@@ -1430,7 +1699,7 @@ static void input_tsn_conf(void *conf_mem, char *tsnspec)
 			if (show_gcl_remaining_cycle_time && remaining_cycle_time > 0) {
 				percentage_string(percent_str,
 						  (qbvconf->cycle_time - remaining_cycle_time),
-						  qbvconf->cycle_time);
+						   qbvconf->cycle_time);
 				colored_printf(RED, "cycle time utilization %u/%u [%s]\n",
 					       (qbvconf->cycle_time - remaining_cycle_time),
 					       qbvconf->cycle_time, percent_str);
@@ -1466,7 +1735,6 @@ static void input_tsn_conf(void *conf_mem, char *tsnspec)
 
 		if (qciconf->sa_check)
 			mac_addr_input("Source MAC Addr", qciconf->source_mac_addr);
-
 	} else if (strcmp(tsnspec, "misc_rx_port_id_conf") == 0) {
 		miscrxportidconf = (struct misc_rx_port_id_conf *)conf_mem;
 		uint_input = y_n_input("RX port ID Enable", miscrxportidconf->port_id_rx_check);
@@ -1476,7 +1744,6 @@ static void input_tsn_conf(void *conf_mem, char *tsnspec)
 							    miscrxportidconf->port_id_rx,
 							    UINT16_RANGE);
 		miscrxportidconf->port_id_rx = uint_input;
-
 	} else if (strcmp(tsnspec, "misc_ptp_tx_prioq_conf") == 0) {
 		miscptptxprioqconf = (struct misc_ptp_tx_prioq_conf *)conf_mem;
 		uint_input = unsigned_integer_input("PRIOQ for PTP TX",
@@ -1491,8 +1758,338 @@ static void input_tsn_conf(void *conf_mem, char *tsnspec)
 	}
 }
 
+static void parse_mac_string(const char *mac_str, uint8_t *da)
+{
+	char hex_num[3];
+	int k;
+
+	for (k = 0; k < 6; k++) {
+		hex_num[0] = mac_str[3 * k];
+		hex_num[1] = mac_str[3 * k + 1];
+		hex_num[2] = '\0';
+		da[k] = (uint8_t)strtoul(hex_num, NULL, 16);
+	}
+}
+
+static void parse_qci_v1_sa(cJSON *jqciconf,
+			    struct qci_conf *qciconf)
+{
+	cJSON *field;
+	char *mac_str;
+	char hex_num[3];
+	int i;
+
+	field = cJSON_GetObjectItemCaseSensitive(jqciconf,
+						 JSON_KEY_SOURCE_MAC_ADDRESS_CHECK);
+	printf("sa_check : %d\n", cJSON_IsTrue(field));
+	qciconf->sa_check = cJSON_IsTrue(field);
+
+	field = cJSON_GetObjectItemCaseSensitive(jqciconf,
+						 JSON_KEY_SOURCE_MAC_ADDRESS);
+	printf("sourceaddr: %s\n", field->valuestring);
+	mac_str = field->valuestring;
+	for (i = 0; i < 6; i++) {
+		hex_num[0] = mac_str[3 * i];
+		hex_num[1] = mac_str[3 * i + 1];
+		hex_num[2] = '\0';
+		qciconf->source_mac_addr[i] =
+			strtoul(hex_num, NULL, 16);
+	}
+	printf("source mac addr : %02x:%02x:%02x:%02x:%02x:%02x\n",
+	       qciconf->source_mac_addr[0],
+	       qciconf->source_mac_addr[1],
+	       qciconf->source_mac_addr[2],
+	       qciconf->source_mac_addr[3],
+	       qciconf->source_mac_addr[4],
+	       qciconf->source_mac_addr[5]);
+
+	field = cJSON_GetObjectItemCaseSensitive(jqciconf,
+						 JSON_KEY_DST_MAC_ADDRESS_CHECK);
+	printf("da_check : %d\n", cJSON_IsTrue(field));
+	qciconf->da_check = cJSON_IsTrue(field);
+
+	field = cJSON_GetObjectItemCaseSensitive(jqciconf,
+						 JSON_KEY_DESTINATION_MAC_ADDRESS);
+	printf("destination: %s\n", field->valuestring);
+	mac_str = field->valuestring;
+	for (i = 0; i < 6; i++) {
+		hex_num[0] = mac_str[3 * i];
+		hex_num[1] = mac_str[3 * i + 1];
+		hex_num[2] = '\0';
+		qciconf->destination_mac_addr[i] =
+			strtoul(hex_num, NULL, 16);
+	}
+	printf("destination mac addr : %02x:%02x:%02x:%02x:%02x:%02x\n",
+	       qciconf->destination_mac_addr[0],
+	       qciconf->destination_mac_addr[1],
+	       qciconf->destination_mac_addr[2],
+	       qciconf->destination_mac_addr[3],
+	       qciconf->destination_mac_addr[4],
+	       qciconf->destination_mac_addr[5]);
+}
+
+static void parse_psfp_stream_fields(cJSON *jstream,
+				     struct psfp_stream_conf *psfp)
+{
+	cJSON *field;
+
+	field = cJSON_GetObjectItemCaseSensitive(jstream,
+						 JSON_KEY_MASK);
+	if (cJSON_IsNumber(field))
+		psfp->mask = (uint8_t)field->valueint;
+
+	if (psfp->mask & 0x1) {
+		cJSON *da_fld =
+			cJSON_GetObjectItemCaseSensitive(jstream,
+							 JSON_KEY_DA);
+
+		if (da_fld && cJSON_IsString(da_fld) &&
+		    strlen(da_fld->valuestring) >= 17)
+			parse_mac_string(da_fld->valuestring,
+					 psfp->da);
+	}
+
+	field = cJSON_GetObjectItemCaseSensitive(jstream,
+						 JSON_KEY_VID);
+	if (cJSON_IsNumber(field))
+		psfp->vid = (uint16_t)field->valueint;
+
+	field = cJSON_GetObjectItemCaseSensitive(jstream,
+						 JSON_KEY_MAX_SDU_SIZE);
+	if (cJSON_IsNumber(field))
+		psfp->max_sdu_size = (uint16_t)field->valueint;
+
+	field = cJSON_GetObjectItemCaseSensitive(jstream,
+						 JSON_KEY_PSFP_CBS);
+	if (cJSON_IsNumber(field))
+		psfp->psfp_cbs = (uint32_t)field->valuedouble;
+
+	field = cJSON_GetObjectItemCaseSensitive(jstream,
+						 JSON_KEY_PSFP_EBS);
+	if (cJSON_IsNumber(field))
+		psfp->psfp_ebs = (uint32_t)field->valuedouble;
+
+	field = cJSON_GetObjectItemCaseSensitive(jstream,
+						 JSON_KEY_PSFP_PORT_CIR);
+	if (cJSON_IsNumber(field))
+		psfp->psfp_port_cir = (uint32_t)field->valuedouble;
+
+	field = cJSON_GetObjectItemCaseSensitive(jstream,
+						 JSON_KEY_PSFP_PORT_EIR);
+	if (cJSON_IsNumber(field))
+		psfp->psfp_port_eir = (uint32_t)field->valuedouble;
+
+	field = cJSON_GetObjectItemCaseSensitive(jstream,
+						 JSON_KEY_PSFP_PORT_FILTER_EN_DIS);
+	if (cJSON_IsBool(field))
+		psfp->psfp_port_filter_en_dis = cJSON_IsTrue(field);
+	else if (cJSON_IsNumber(field))
+		psfp->psfp_port_filter_en_dis = !!field->valueint;
+
+	field = cJSON_GetObjectItemCaseSensitive(jstream,
+						 JSON_KEY_PSFP_PORT_FM_EN_DIS);
+	if (cJSON_IsBool(field))
+		psfp->psfp_port_fm_en_dis = cJSON_IsTrue(field);
+	else if (cJSON_IsNumber(field))
+		psfp->psfp_port_fm_en_dis = !!field->valueint;
+
+	field = cJSON_GetObjectItemCaseSensitive(jstream,
+						 JSON_KEY_PSFP_PORT_DROP_ON_YELLOW);
+	if (cJSON_IsBool(field))
+		psfp->psfp_port_drop_on_yellow = cJSON_IsTrue(field);
+	else if (cJSON_IsNumber(field))
+		psfp->psfp_port_drop_on_yellow = !!field->valueint;
+
+	field = cJSON_GetObjectItemCaseSensitive(jstream,
+						 JSON_KEY_MAX_SDU_SIZE_EXCEED);
+	if (cJSON_IsBool(field))
+		psfp->max_sdu_size_exceed = cJSON_IsTrue(field);
+	else if (cJSON_IsNumber(field))
+		psfp->max_sdu_size_exceed = !!field->valueint;
+}
+
+static void parse_qbv_streamid_json(cJSON *jstream,
+				    struct qbv_streamid_conf *sid)
+{
+	cJSON *val;
+	cJSON *val_en;
+	int enable = 0;
+
+	val_en = cJSON_GetObjectItemCaseSensitive(jstream,
+						  "enable");
+	if (val_en)
+		enable = cJSON_IsTrue(val_en);
+
+	if (!enable)
+		return;
+
+	sid->mask = 0;
+
+	/* VLAN ID */
+	val_en = cJSON_GetObjectItemCaseSensitive(jstream,
+						  JSON_KEY_PRIO_QUEUE_VLAN_ID_ENABLE);
+	val = cJSON_GetObjectItemCaseSensitive(jstream,
+					       JSON_KEY_PRIO_QUEUE_VLAN_ID);
+	if (val_en && cJSON_IsBool(val_en) &&
+	    cJSON_IsTrue(val_en)) {
+		sid->mask |= 0x2;
+		if (val && cJSON_IsNumber(val)) {
+			printf("VLAN-ID: %d\n",
+			       val->valueint);
+			sid->vid = val->valueint;
+		}
+	}
+
+	/* FRER */
+	val = cJSON_GetObjectItemCaseSensitive(jstream,
+					       JSON_KEY_PRIO_QUEUE_FRER_EN);
+	if (val) {
+		printf("frer : %d\n", cJSON_IsTrue(val));
+		sid->frer = cJSON_IsTrue(val);
+	}
+
+	/* Priority */
+	val_en = cJSON_GetObjectItemCaseSensitive(jstream,
+						  JSON_KEY_PRIO_QUEUE_PRIORITY_ENABLE);
+	val = cJSON_GetObjectItemCaseSensitive(jstream,
+					       JSON_KEY_PRIO_QUEUE_PRIORITY);
+	if (val_en && cJSON_IsBool(val_en) &&
+	    cJSON_IsTrue(val_en)) {
+		sid->mask |= 0x4;
+		if (val && cJSON_IsNumber(val)) {
+			printf("priority: %d\n",
+			       val->valueint);
+			sid->pcp = val->valueint;
+		}
+	}
+
+	/* Destination MAC */
+	val_en = cJSON_GetObjectItemCaseSensitive(jstream,
+						  JSON_KEY_PRIO_QUEUE_DST_MAC_ENABLE);
+	val = cJSON_GetObjectItemCaseSensitive(jstream,
+					       JSON_KEY_PRIO_QUEUE_DST_MAC);
+	if (val_en && cJSON_IsBool(val_en) &&
+	    cJSON_IsTrue(val_en)) {
+		sid->mask |= 0x1;
+		if (val && cJSON_IsString(val) &&
+		    strlen(val->valuestring) >= 17) {
+			printf("destination: %s\n",
+			       val->valuestring);
+			parse_mac_string(val->valuestring,
+					 sid->da);
+		} else {
+			memset(sid->da, 0, 6);
+		}
+	}
+}
+
+static void parse_qbv_prioq_json(cJSON *entry,
+				 struct qbv_conf *qbvconf,
+				 int num_prio_queues,
+				 int num_stream_id_per_q)
+{
+	cJSON *field;
+	cJSON *streamids_arr;
+	cJSON *sid_entry;
+	cJSON *sid_field;
+	int idx;
+	int stream_idx;
+
+	field = cJSON_GetObjectItemCaseSensitive(entry,
+						 JSON_KEY_PRIO_QUEUE_NUM);
+	if (!field)
+		return;
+
+	idx = field->valueint;
+	printf("prioq : %d\n", idx);
+
+	if (num_prio_queues == 7 && idx == 7) {
+		printf("PRIOQ7: not configurable\n");
+		return;
+	}
+
+	field = cJSON_GetObjectItemCaseSensitive(entry,
+						 JSON_KEY_PRIO_QUEUE_ENABLE);
+	if (field) {
+		printf("enable for index %d: %d\n",
+		       idx, cJSON_IsTrue(field));
+		if (cJSON_IsTrue(field))
+			qbvconf->priority_queue_enable |= (1 << idx);
+		else
+			qbvconf->priority_queue_enable &= ~(1 << idx);
+	}
+
+	streamids_arr = cJSON_GetObjectItemCaseSensitive(entry,
+							 JSON_KEY_PRIO_QUEUE_STREAMIDS);
+	if (!streamids_arr || !cJSON_IsArray(streamids_arr))
+		return;
+
+	cJSON_ArrayForEach(sid_entry, streamids_arr) {
+		sid_field = cJSON_GetObjectItemCaseSensitive(sid_entry,
+							     JSON_KEY_PRIO_QUEUE_STREAMID);
+		if (!sid_field)
+			continue;
+
+		stream_idx = sid_field->valueint;
+		printf("stream id : %d\n", stream_idx);
+
+		if (stream_idx < 0 || stream_idx >= num_stream_id_per_q)
+			continue;
+
+		parse_qbv_streamid_json(sid_entry,
+					&qbvconf->priority_queue_prios_que[idx]
+						.streamid[stream_idx]);
+
+		printf("final mask : %d\n",
+		       qbvconf->priority_queue_prios_que[idx]
+				.streamid[stream_idx].mask);
+	}
+}
+
+static void parse_qbv_gcl_json(cJSON *entry,
+			       struct qbv_conf *qbvconf)
+{
+	cJSON *field;
+	int idx;
+
+	field = cJSON_GetObjectItemCaseSensitive(entry,
+						 JSON_KEY_GATE_CONTROL_LIST_INDEX);
+	if (!field)
+		return;
+
+	idx = field->valueint;
+	printf("index : %d\n", idx);
+
+	field = cJSON_GetObjectItemCaseSensitive(entry,
+						 JSON_KEY_GATE_CONTROL_LIST_GATE_STATE);
+	if (field) {
+		if (cJSON_IsString(field)) {
+			printf("gatestate for index %d : %d\n",
+			       idx, gcl_csv_to_uint(field->valuestring));
+			qbvconf->gcle[idx].gate_state =
+				gcl_csv_to_uint(field->valuestring);
+		} else {
+			printf("gatestate for index %d : %d\n",
+			       idx, field->valueint);
+			qbvconf->gcle[idx].gate_state =
+				field->valueint;
+		}
+	}
+
+	field = cJSON_GetObjectItemCaseSensitive(entry,
+						 JSON_KEY_GATE_CONTROL_LIST_TIME_INTERVAL);
+	if (field) {
+		printf("timeinterval for index %d : %d\n",
+		       idx, field->valueint);
+		qbvconf->gcle[idx].time_interval =
+			field->valueint;
+	}
+}
+
 static int microchip_tsn_set_config_json(__u64 devid, char *tsnspec, char *json_file_path)
 {
+	struct qav_conf *qavconf;
+
 	void *conf_mem;
 	struct qbv_conf *qbvconf;
 	struct qbu_conf *qbuconf;
@@ -1501,6 +2098,7 @@ static int microchip_tsn_set_config_json(__u64 devid, char *tsnspec, char *json_
 	struct misc_ptp_tx_prioq_conf *miscptptxprioqconf;
 	struct misc_length_deduct_byte_conf *miscldbconf;
 	struct microchip_tsn_device dev;
+
 	cJSON *json;
 	cJSON *jqciconf;
 	cJSON *jqciconf_field;
@@ -1512,6 +2110,8 @@ static int microchip_tsn_set_config_json(__u64 devid, char *tsnspec, char *json_
 	cJSON *jqbvconf_prioq_entry_field;
 	cJSON *jqbvconf_gcl_entry;
 	cJSON *jqbvconf_gcl_entry_field;
+	cJSON *jqbvconf_streamids;
+	cJSON *jqbvconf_streamid;
 	cJSON *jmiscrxportidconf = NULL;
 	cJSON *jmiscrxportidconf_port_id_rx_check = NULL;
 	cJSON *jmiscrxportidconf_port_id_rx = NULL;
@@ -1519,12 +2119,12 @@ static int microchip_tsn_set_config_json(__u64 devid, char *tsnspec, char *json_
 	cJSON *jmiscptptxprioqconf_ptp_prioq = NULL;
 	cJSON *jmiscldbconf = NULL;
 	cJSON *jmiscldbconf_length_deduct_bytes = NULL;
+	cJSON *jqavconf = NULL;
+	cJSON *jqavconf_field = NULL;
 	FILE *fp;
 	char *buffer;
 	int size, len;
 	int ret, i;
-	char *mac_addr_str;
-	char hex_num[CHARS_FOR_HEX_BYTE + 1];
 
 	fp = fopen(json_file_path, "r");
 	if (!fp) {
@@ -1569,59 +2169,97 @@ static int microchip_tsn_set_config_json(__u64 devid, char *tsnspec, char *json_
 
 	jqciconf = cJSON_GetObjectItemCaseSensitive(json, JSON_KEY_QCI_CONF);
 	if (jqciconf) {
-		qciconf = (struct qci_conf *)conf_mem;
-		jqciconf_field = cJSON_GetObjectItemCaseSensitive(jqciconf,
-								  JSON_KEY_SOURCE_MAC_ADDRESS_CHECK
-								  );
-		printf("sa_check : %d\n", cJSON_IsTrue(jqciconf_field));
-		qciconf->sa_check = cJSON_IsTrue(jqciconf_field);
+		if (num_stream_id_per_q == 0) {
+			qciconf = (struct qci_conf *)conf_mem;
+			parse_qci_v1_sa(jqciconf, qciconf);
 
-		jqciconf_field = cJSON_GetObjectItemCaseSensitive(jqciconf,
-								  JSON_KEY_SOURCE_MAC_ADDRESS);
-		printf("sourceaddr: %s\n", jqciconf_field->valuestring);
-		mac_addr_str = jqciconf_field->valuestring;
-		for (i = 0; i < 6; i++) {
-			hex_num[0] = mac_addr_str[3 * i];
-			hex_num[1] = mac_addr_str[3 * i + 1];
-			hex_num[2] = '\0';
-			qciconf->source_mac_addr[i] = strtoul(hex_num, NULL, 16);
+			ret = microchip_tsn_device_set_qci_conf(&dev, qciconf);
+			printf("ret = %d\n", ret);
+		} else {
+			struct qci_conf_v3 *qciconf_v3;
+
+			cJSON *jqpsfpconf_port;
+			cJSON *jqpsfpconf_stream;
+			int parsed_streams = 0;
+
+			qciconf_v3 = (struct qci_conf_v3 *)conf_mem;
+			memset(qciconf_v3, 0, MAX_TSN_CONFIG_SIZE);
+
+			jqpsfpconf_port = cJSON_GetObjectItemCaseSensitive(jqciconf, "ports");
+			if (!jqpsfpconf_port || !cJSON_IsArray(jqpsfpconf_port)) {
+				printf("No 'ports' array found\n");
+				ret = -EINVAL;
+			} else {
+				cJSON_ArrayForEach(jqpsfpconf_port, jqpsfpconf_port) {
+					cJSON *port_idx_field =
+				cJSON_GetObjectItemCaseSensitive(jqpsfpconf_port,
+								 JSON_KEY_PORT_NUM);
+
+					if (!port_idx_field || !cJSON_IsNumber(port_idx_field)) {
+						printf("Missing/invalid port_num\n");
+						continue;
+					}
+
+					int port_idx = port_idx_field->valueint;
+
+					printf("port_num: %d\n", port_idx);
+
+					if (port_idx < 0 ||
+					    port_idx >= MICROCHIP_TSN_NUM_PSFP_port) {
+						printf("Invalid port_idx: %d\n", port_idx);
+						continue;
+					}
+
+					jqpsfpconf_stream =
+					cJSON_GetObjectItemCaseSensitive(jqpsfpconf_port,
+									 JSON_KEY_PORT_PSFP_STREAM);
+					if (!jqpsfpconf_stream ||
+					    !cJSON_IsArray(jqpsfpconf_stream)) {
+						printf("No streams for port %d\n", port_idx);
+						continue;
+					}
+
+					cJSON_ArrayForEach(jqpsfpconf_stream, jqpsfpconf_stream) {
+						cJSON *stream_idx_field =
+					cJSON_GetObjectItemCaseSensitive(jqpsfpconf_stream,
+									 JSON_KEY_STREAM_ID);
+
+					if (!stream_idx_field ||
+					    !cJSON_IsNumber(stream_idx_field)) {
+						printf("Missing stream_id\n");
+						continue;
+					}
+
+					int sid_idx = stream_idx_field->valueint;
+
+					printf("stream_id: %d\n", sid_idx);
+
+					if (sid_idx < 0 || sid_idx >=
+					    MICROCHIP_TSN_NUM_PSFP_port_STREAM_ID) {
+						printf("Invalid stream_id: %d\n", sid_idx);
+						continue;
+					}
+
+					struct psfp_stream_conf *psfp =
+					&qciconf_v3->ports[port_idx].port_psfp[sid_idx];
+
+					memset(psfp, 0, sizeof(*psfp));
+
+					parse_psfp_stream_fields(jqpsfpconf_stream, psfp);
+
+					printf("port%d stream%d: CBS=%u EBS=%u VID=%d\n",
+					       port_idx, sid_idx,
+					       psfp->psfp_cbs, psfp->psfp_ebs, psfp->vid);
+					       parsed_streams++;
+					}
+				}
+
+				printf("Parsed %d streams successfully\n", parsed_streams);
+				ret = microchip_tsn_device_set_qci_conf_v3(&dev, qciconf_v3);
+				printf("QCI apply result: %d\n", ret);
+			}
 		}
-		printf("source mac addr : %02x:%02x:%02x:%02x:%02x:%02x\n",
-		       qciconf->source_mac_addr[0],
-		       qciconf->source_mac_addr[1],
-		       qciconf->source_mac_addr[2],
-		       qciconf->source_mac_addr[3],
-		       qciconf->source_mac_addr[4],
-		       qciconf->source_mac_addr[5]);
-
-		jqciconf_field = cJSON_GetObjectItemCaseSensitive
-				(jqciconf,
-				 JSON_KEY_DESTINATION_MAC_ADDRESS_CHECK);
-		printf("da_check : %d\n", cJSON_IsTrue(jqciconf_field));
-		qciconf->da_check = cJSON_IsTrue(jqciconf_field);
-
-		jqciconf_field = cJSON_GetObjectItemCaseSensitive(jqciconf,
-								  JSON_KEY_DESTINATION_MAC_ADDRESS);
-		printf("destination: %s\n", jqciconf_field->valuestring);
-		mac_addr_str = jqciconf_field->valuestring;
-		for (i = 0; i < 6; i++) {
-			hex_num[0] = mac_addr_str[3 * i];
-			hex_num[1] = mac_addr_str[3 * i + 1];
-			hex_num[2] = '\0';
-			qciconf->destination_mac_addr[i] = strtoul(hex_num, NULL, 16);
-		}
-		printf("destination mac addr : %02x:%02x:%02x:%02x:%02x:%02x\n",
-		       qciconf->destination_mac_addr[0],
-		       qciconf->destination_mac_addr[1],
-		       qciconf->destination_mac_addr[2],
-		       qciconf->destination_mac_addr[3],
-		       qciconf->destination_mac_addr[4],
-		       qciconf->destination_mac_addr[5]);
-
-		ret = microchip_tsn_device_set_qci_conf(&dev, qciconf);
-		printf("ret = %d\n", ret);
 	}
-
 	jqbuconf = cJSON_GetObjectItemCaseSensitive(json, JSON_KEY_QBU_CONF);
 	if (jqbuconf) {
 		qbuconf = (struct qbu_conf *)conf_mem;
@@ -1639,118 +2277,149 @@ static int microchip_tsn_set_config_json(__u64 devid, char *tsnspec, char *json_
 		ret = microchip_tsn_device_set_qbu_conf(&dev, qbuconf);
 		printf("ret = %d\n", ret);
 	}
-
 	jqbvconf = cJSON_GetObjectItemCaseSensitive(json, JSON_KEY_QBV_CONF);
 	if (jqbvconf) {
 		qbvconf = (struct qbv_conf *)conf_mem;
+		memset(qbvconf, 0, MAX_TSN_CONFIG_SIZE);
 
 		jqbvconf_field = cJSON_GetObjectItemCaseSensitive(jqbvconf,
 								  JSON_KEY_BASE_TIME_SEC);
-		printf("basetimesec: %d\n", jqbvconf_field->valueint);
-		qbvconf->basetime_sec =  jqbvconf_field->valueint;
+		if (jqbvconf_field) {
+			printf("basetimesec: %d\n", jqbvconf_field->valueint);
+			qbvconf->basetime_sec = jqbvconf_field->valueint;
+		}
 
 		jqbvconf_field = cJSON_GetObjectItemCaseSensitive(jqbvconf,
 								  JSON_KEY_BASE_TIME_NSEC);
-		printf("basetimensec: %d\n", jqbvconf_field->valueint);
-		qbvconf->basetime_nsec =  jqbvconf_field->valueint;
+		if (jqbvconf_field) {
+			printf("basetimensec: %d\n", jqbvconf_field->valueint);
+			qbvconf->basetime_nsec = jqbvconf_field->valueint;
+		}
 
 		jqbvconf_field = cJSON_GetObjectItemCaseSensitive(jqbvconf,
 								  JSON_KEY_BASE_TIME_ADJUST);
-		printf("basetime adjust: %d\n", jqbvconf_field->valueint);
-		qbvconf->basetime_adjust =  jqbvconf_field->valueint;
+		if (jqbvconf_field) {
+			printf("basetime adjust: %d\n", jqbvconf_field->valueint);
+			qbvconf->basetime_adjust = jqbvconf_field->valueint;
+		}
+
+		jqbvconf_field = cJSON_GetObjectItemCaseSensitive(jqbvconf,
+								  JSON_KEY_RX_STREAMID_TIMEOUT);
+		if (jqbvconf_field) {
+			printf("rxstreamidtimeout: %d\n", jqbvconf_field->valueint);
+			qbvconf->rx_streamid_reset = jqbvconf_field->valueint;
+		}
 
 		jqbvconf_field = cJSON_GetObjectItemCaseSensitive(jqbvconf,
 								  JSON_KEY_CYCLE_TIME);
-		printf("cycletime: %d\n", jqbvconf_field->valueint);
-		qbvconf->cycle_time =  jqbvconf_field->valueint;
+		if (jqbvconf_field) {
+			printf("cycletime: %.0f %016" PRIx64 "\n",
+			       jqbvconf_field->valuedouble,
+			       (uint64_t)jqbvconf_field->valuedouble);
+			qbvconf->cycle_time = (uint64_t)jqbvconf_field->valuedouble;
+		}
 
 		jqbvconf_field = cJSON_GetObjectItemCaseSensitive(jqbvconf,
 								  JSON_KEY_GATE_CONTROL_LIST_COUNT);
-		printf("gclcount: %d\n", jqbvconf_field->valueint);
-		qbvconf->control_list_length =  jqbvconf_field->valueint;
+		if (jqbvconf_field) {
+			printf("gclcount: %d\n", jqbvconf_field->valueint);
+			       qbvconf->control_list_length = jqbvconf_field->valueint;
+		}
 
 		jqbvconf_field = cJSON_GetObjectItemCaseSensitive(jqbvconf,
 								  JSON_KEY_INITIAL_GATE_STATE);
-		printf("initgatestate: %d\n", jqbvconf_field->valueint);
-		qbvconf->initial_gate_state =  jqbvconf_field->valueint;
+		if (jqbvconf_field) {
+			printf("initgatestate: %d\n", jqbvconf_field->valueint);
+			qbvconf->initial_gate_state = jqbvconf_field->valueint;
+		}
 
 		jqbvconf_field = cJSON_GetObjectItemCaseSensitive(jqbvconf,
 								  JSON_KEY_PRIORITY_ENABLE);
-		printf("priorityenable: %d\n", cJSON_IsTrue(jqbvconf_field));
-		qbvconf->priority_enable = cJSON_IsTrue(jqbvconf_field);
+		if (jqbvconf_field) {
+			printf("priorityenable: %d\n", cJSON_IsTrue(jqbvconf_field));
+			qbvconf->priority_enable = cJSON_IsTrue(jqbvconf_field);
+		}
 
-		jqbvconf_field = cJSON_GetObjectItemCaseSensitive(jqbvconf, JSON_KEY_GATE_ENABLE);
-		printf("gateenable: %d\n", cJSON_IsTrue(jqbvconf_field));
-		qbvconf->gate_enable = cJSON_IsTrue(jqbvconf_field);
+		jqbvconf_field = cJSON_GetObjectItemCaseSensitive(jqbvconf,
+								  JSON_KEY_GATE_ENABLE);
+		if (jqbvconf_field) {
+			printf("gateenable: %d\n", cJSON_IsTrue(jqbvconf_field));
+			qbvconf->gate_enable = cJSON_IsTrue(jqbvconf_field);
+		}
 
-		jqbvconf_field = cJSON_GetObjectItemCaseSensitive(jqbvconf, JSON_KEY_PRIO_QUEUES);
-		printf("prioqueues: %d isarray : %d\n", jqbvconf_field->type,
-		       cJSON_IsArray(jqbvconf_field));
+		jqbvconf_field = cJSON_GetObjectItemCaseSensitive(jqbvconf,
+								  JSON_KEY_PRIO_QUEUES);
+		if (jqbvconf_field) {
+			printf("prioqueues: %d isarray : %d\n",
+			       jqbvconf_field->type,
+			       cJSON_IsArray(jqbvconf_field));
 
-		cJSON_ArrayForEach(jqbvconf_prioq_entry, jqbvconf_field) {
-			jqbvconf_prioq_entry_field = cJSON_GetObjectItemCaseSensitive
-						     (jqbvconf_prioq_entry,
-						      JSON_KEY_PRIO_QUEUE_NUM);
-			printf("prioq : %d\n", jqbvconf_prioq_entry_field->valueint);
-			i = jqbvconf_prioq_entry_field->valueint;
-
-			if (num_prio_queues == 7 && i == 7) {
-				printf("PRIOQ7 Not configurable, ignoring config for PRIOQ7\n");
-				continue;
+			cJSON_ArrayForEach(jqbvconf_prioq_entry,
+					   jqbvconf_field) {
+				parse_qbv_prioq_json(jqbvconf_prioq_entry,
+						     qbvconf, num_prio_queues,
+						     num_stream_id_per_q);
 			}
-
-			jqbvconf_prioq_entry_field = cJSON_GetObjectItemCaseSensitive
-						     (jqbvconf_prioq_entry,
-						      JSON_KEY_PRIO_QUEUE_ENABLE);
-			printf("priority for index %d: %d\n", i,
-			       cJSON_IsTrue(jqbvconf_prioq_entry_field));
-			if (cJSON_IsTrue(jqbvconf_prioq_entry_field))
-				qbvconf->priority_queue_enable |= (1 << i);
-			else
-				qbvconf->priority_queue_enable &= ~(1 << i);
-
-			jqbvconf_prioq_entry_field = cJSON_GetObjectItemCaseSensitive
-						     (jqbvconf_prioq_entry,
-						      JSON_KEY_PRIO_QUEUE_PRIORITY);
-			printf("priority for index %d : %d\n", i,
-			       jqbvconf_prioq_entry_field->valueint);
-			qbvconf->priority_queue_prios[i] = jqbvconf_prioq_entry_field->valueint;
 		}
 
 		jqbvconf_field = cJSON_GetObjectItemCaseSensitive(jqbvconf,
 								  JSON_KEY_GATE_CONTROL_LIST);
-		printf("gatecontrollist: %d isarray : %d\n", jqbvconf_field->type,
-		       cJSON_IsArray(jqbvconf_field));
+		if (jqbvconf_field) {
+			printf("gatecontrollist: %d isarray : %d\n",
+			       jqbvconf_field->type,
+			       cJSON_IsArray(jqbvconf_field));
 
-		cJSON_ArrayForEach(jqbvconf_gcl_entry, jqbvconf_field) {
-			jqbvconf_gcl_entry_field = cJSON_GetObjectItemCaseSensitive
-						   (jqbvconf_gcl_entry,
-						    JSON_KEY_GATE_CONTROL_LIST_INDEX);
-			printf("index : %d\n", jqbvconf_gcl_entry_field->valueint);
-			i = jqbvconf_gcl_entry_field->valueint;
-
-			jqbvconf_gcl_entry_field = cJSON_GetObjectItemCaseSensitive
-						   (jqbvconf_gcl_entry,
-						    JSON_KEY_GATE_CONTROL_LIST_GATE_STATE);
-			if (cJSON_IsString(jqbvconf_gcl_entry_field)) {
-				printf("gatestate for index %d : %d\n", i,
-				       gcl_csv_to_uint(jqbvconf_gcl_entry_field->valuestring));
-				qbvconf->gcle[i].gate_state =
-				gcl_csv_to_uint(jqbvconf_gcl_entry_field->valuestring);
-			} else {
-				printf("gatestate for index %d : %d\n", i,
-				       jqbvconf_gcl_entry_field->valueint);
-				qbvconf->gcle[i].gate_state = jqbvconf_gcl_entry_field->valueint;
+			cJSON_ArrayForEach(jqbvconf_gcl_entry,
+					   jqbvconf_field) {
+				parse_qbv_gcl_json(jqbvconf_gcl_entry,
+						   qbvconf);
 			}
-
-			jqbvconf_gcl_entry_field = cJSON_GetObjectItemCaseSensitive
-						   (jqbvconf_gcl_entry,
-						    JSON_KEY_GATE_CONTROL_LIST_TIME_INTERVAL);
-			printf("timeinterval for index %d : %d\n", i,
-			       jqbvconf_gcl_entry_field->valueint);
-			qbvconf->gcle[i].time_interval = jqbvconf_gcl_entry_field->valueint;
 		}
+
+		printf("CLI qbvconf->priority_queue_enable = 0x%02x\n",
+		       qbvconf->priority_queue_enable);
 		ret = microchip_tsn_device_set_qbv_conf(&dev, qbvconf);
+		printf("ret  set qbv conf to kernel = %d\n", ret);
+	}
+
+	jqavconf = cJSON_GetObjectItemCaseSensitive(json, JSON_KEY_QAV_CONF);
+	if (jqavconf) {
+		qavconf = (struct qav_conf *)conf_mem;
+		jqavconf_field = cJSON_GetObjectItemCaseSensitive(jqavconf, "num_cbs_queues");
+		if (jqavconf_field)
+			qavconf->num_cbs_queues = (uint8_t)jqavconf_field->valueint;
+		jqavconf_field = cJSON_GetObjectItemCaseSensitive(jqavconf, "queues");
+		if (cJSON_IsArray(jqavconf_field)) {
+			i = 0;
+			cJSON *queue_item = NULL;
+
+			cJSON_ArrayForEach(queue_item, jqavconf_field) {
+				cJSON *field = NULL;
+
+				if (i >= qavconf->num_cbs_queues)
+					break;
+				field = cJSON_GetObjectItemCaseSensitive(queue_item, "cbs_q_num");
+				if (field)
+					qavconf->cqc[i].cbs_q_num = (uint8_t)field->valueint;
+				field = cJSON_GetObjectItemCaseSensitive(queue_item, "cbs_en");
+				if (field)
+					qavconf->cqc[i].cbs_en = cJSON_IsTrue(field) ? 1 : 0;
+				field = cJSON_GetObjectItemCaseSensitive(queue_item, "cbs_inc");
+				if (field)
+					qavconf->cqc[i].cbs_inc = (uint16_t)field->valueint;
+				field = cJSON_GetObjectItemCaseSensitive(queue_item, "cbs_dec");
+				if (field)
+					qavconf->cqc[i].cbs_dec = (uint16_t)field->valueint;
+				field = cJSON_GetObjectItemCaseSensitive(queue_item, "cred_min");
+				if (field)
+					qavconf->cqc[i].cred_min = (int32_t)field->valueint;
+				field = cJSON_GetObjectItemCaseSensitive(queue_item, "cred_max");
+				if (field)
+					qavconf->cqc[i].cred_max = (uint32_t)field->valueint;
+				i++;
+			}
+		}
+		ret = microchip_tsn_device_set_qav_conf(&dev, qavconf);
 		printf("ret = %d\n", ret);
 	}
 
@@ -1758,13 +2427,13 @@ static int microchip_tsn_set_config_json(__u64 devid, char *tsnspec, char *json_
 	if (jmiscrxportidconf) {
 		miscrxportidconf = (struct misc_rx_port_id_conf *)conf_mem;
 		jmiscrxportidconf_port_id_rx_check = cJSON_GetObjectItemCaseSensitive
-						     (jmiscrxportidconf,
-						      JSON_KEY_PORT_ID_RECV_CHECK);
+			(jmiscrxportidconf,
+			 JSON_KEY_PORT_ID_RECV_CHECK);
 		miscrxportidconf->port_id_rx_check = cJSON_IsTrue
-						     (jmiscrxportidconf_port_id_rx_check);
+			(jmiscrxportidconf_port_id_rx_check);
 		jmiscrxportidconf_port_id_rx = cJSON_GetObjectItemCaseSensitive
-					       (jmiscrxportidconf,
-						JSON_KEY_PORT_ID_RECV);
+			(jmiscrxportidconf,
+			 JSON_KEY_PORT_ID_RECV);
 		miscrxportidconf->port_id_rx = jmiscrxportidconf_port_id_rx->valueint;
 		ret = microchip_tsn_misc_set_rx_port_id(&dev, miscrxportidconf);
 		printf("ret = %d\n", ret);
@@ -1774,8 +2443,8 @@ static int microchip_tsn_set_config_json(__u64 devid, char *tsnspec, char *json_
 	if (jmiscptptxprioqconf) {
 		miscptptxprioqconf = (struct  misc_ptp_tx_prioq_conf *)conf_mem;
 		jmiscptptxprioqconf_ptp_prioq = cJSON_GetObjectItemCaseSensitive
-						(jmiscptptxprioqconf,
-						 JSON_KEY_PTP_XMIT_PRIORITY_QUEUE);
+			(jmiscptptxprioqconf,
+			 JSON_KEY_PTP_XMIT_PRIORITY_QUEUE);
 		miscptptxprioqconf->ptp_tx_prioq = jmiscptptxprioqconf_ptp_prioq->valueint;
 		ret = microchip_tsn_misc_set_tx_ptp_prioq(&dev, miscptptxprioqconf);
 		printf("ret = %d\n", ret);
@@ -1785,7 +2454,7 @@ static int microchip_tsn_set_config_json(__u64 devid, char *tsnspec, char *json_
 	if (jmiscldbconf) {
 		miscldbconf = (struct misc_length_deduct_byte_conf *)conf_mem;
 		jmiscldbconf_length_deduct_bytes = cJSON_GetObjectItemCaseSensitive
-						   (jmiscldbconf, JSON_KEY_LENGTH_DEDUCT_BYTES);
+			(jmiscldbconf, JSON_KEY_LENGTH_DEDUCT_BYTES);
 		miscldbconf->crc_deduct_len = jmiscldbconf_length_deduct_bytes->valueint;
 		ret = microchip_tsn_misc_set_length_deduct_byte(&dev, miscldbconf);
 		printf("ret = %d\n", ret);
@@ -1799,6 +2468,8 @@ static int microchip_tsn_set_config_json(__u64 devid, char *tsnspec, char *json_
 
 static void microchip_tsn_set_config(__u64 devid, char *tsnspec)
 {
+	struct qav_conf *qavconf;
+
 	void *conf_mem;
 	struct qbv_conf *qbvconf;
 	struct qbu_conf *qbuconf;
@@ -1829,8 +2500,15 @@ static void microchip_tsn_set_config(__u64 devid, char *tsnspec)
 			microchip_tsn_device_get_qbv_conf(&dev, qbvconf);
 		if (strcmp(tsnspec, "qbuconf") == 0)
 			microchip_tsn_device_get_qbu_conf(&dev, qbuconf);
-		if (strcmp(tsnspec, "qciconf") == 0)
-			microchip_tsn_device_get_qci_conf(&dev, qciconf);
+		if (strcmp(tsnspec, "qciconf") == 0) {
+			//microchip_tsn_device_get_qci_conf(&dev, qciconf);
+			if (num_stream_id_per_q == 0)
+				microchip_tsn_device_get_qci_conf(&dev, qciconf);
+			else
+				microchip_tsn_device_get_qci_conf_v3(&dev,
+								     (struct qci_conf_v3 *)
+									conf_mem);
+		}
 		if (strcmp(tsnspec, "misc_ptp_tx_prioq_conf") == 0)
 			microchip_tsn_misc_get_tx_ptp_prioq(&dev, miscptptxprioqconf);
 		if (strcmp(tsnspec, "misc_rx_port_id_conf") == 0)
@@ -1846,26 +2524,30 @@ static void microchip_tsn_set_config(__u64 devid, char *tsnspec)
 	} else if (strcmp(tsnspec, "qbuconf") == 0) {
 		ret = microchip_tsn_device_set_qbu_conf(&dev, qbuconf);
 	} else if (strcmp(tsnspec, "qciconf") == 0) {
-		printf("qciconf da check : %d\n", qciconf->da_check);
-		printf("qciconf sa check : %d\n", qciconf->sa_check);
-		printf("qciconf src mac addr : %02x:%02x:%02x:%02x:%02x:%02x\n",
-		       qciconf->source_mac_addr[0],
-		       qciconf->source_mac_addr[1],
-		       qciconf->source_mac_addr[2],
-		       qciconf->source_mac_addr[3],
-		       qciconf->source_mac_addr[4],
-		       qciconf->source_mac_addr[5]);
-		printf("qciconf dst mac addr : %02x:%02x:%02x:%02x:%02x:%02x\n",
-		       qciconf->destination_mac_addr[0],
-		       qciconf->destination_mac_addr[1],
-		       qciconf->destination_mac_addr[2],
-		       qciconf->destination_mac_addr[3],
-		       qciconf->destination_mac_addr[4],
-		       qciconf->destination_mac_addr[5]);
-		ret = microchip_tsn_device_set_qci_conf(&dev, qciconf);
+		if (num_stream_id_per_q == 0) {
+			printf("qciconf da check : %d\n", qciconf->da_check);
+			printf("qciconf sa check : %d\n", qciconf->sa_check);
+			printf("qciconf src mac addr : %02x:%02x:%02x:%02x:%02x:%02x\n",
+			       qciconf->source_mac_addr[0],
+			       qciconf->source_mac_addr[1],
+			       qciconf->source_mac_addr[2],
+			       qciconf->source_mac_addr[3],
+			       qciconf->source_mac_addr[4],
+			       qciconf->source_mac_addr[5]);
+			printf("qciconf dst mac addr : %02x:%02x:%02x:%02x:%02x:%02x\n",
+			       qciconf->destination_mac_addr[0],
+			       qciconf->destination_mac_addr[1],
+			       qciconf->destination_mac_addr[2],
+			       qciconf->destination_mac_addr[3],
+			       qciconf->destination_mac_addr[4],
+			       qciconf->destination_mac_addr[5]);
+			ret = microchip_tsn_device_set_qci_conf(&dev, qciconf);
+		} else {
+			ret = microchip_tsn_device_set_qci_conf_v3(&dev,
+								   (struct qci_conf_v3 *)conf_mem);
+		}
 	} else if (strcmp(tsnspec, "misc_ptp_tx_prioq_conf") == 0) {
 		ret = microchip_tsn_misc_set_tx_ptp_prioq(&dev, miscptptxprioqconf);
-
 	} else if (strcmp(tsnspec, "misc_rx_port_id_conf") == 0) {
 		ret = microchip_tsn_misc_set_rx_port_id(&dev, miscrxportidconf);
 	} else if (strcmp(tsnspec, "misc_length_deduct_byte_conf") == 0) {
@@ -1892,6 +2574,8 @@ static int get_enable_config(char *tsnspec)
 		get_misc_ptp_tx_prioq_conf = 1;
 		get_misc_rx_port_id_conf = 1;
 		get_misc_length_deduct_byte_conf = 1;
+		get_qav_conf = 1;
+		get_stats_conf = 1;
 		get_all_conf = 1;
 		return 0;
 	}
@@ -1922,6 +2606,12 @@ static int get_enable_config(char *tsnspec)
 			break;
 		case MISC_LENGTH_DEDUCT_BYTE:
 			get_misc_length_deduct_byte_conf = 1;
+			break;
+		case QAVCONF:
+			get_qav_conf = 1;
+			break;
+		case GETSTATS:
+			get_stats_conf = 1;
 			break;
 		}
 	}
@@ -1961,6 +2651,7 @@ int main(int argc, char **argv)
 	int export_to_config_file = 0;
 	int import_from_config_file = 0;
 	int display_selections = 0;
+
 	char *tsnspec = NULL;
 	char *json_file_path = NULL;
 
@@ -2069,6 +2760,7 @@ int main(int argc, char **argv)
 	if (show_devices == 1) {
 		microchip_tsn_display_devices();
 	} else if (device) {
+		auto_detect_caps(devid);
 		if (get) {
 			if (parse_get_config_names(tsnspec))
 				return 0;
@@ -2105,6 +2797,16 @@ int main(int argc, char **argv)
 					microchip_tsn_get_config(devid,
 								 "misc_length_deduct_byte_conf",
 								 json_format, json_file_path);
+					printf("\n\n");
+				}
+				if (get_qav_conf) {
+					microchip_tsn_get_config(devid, "qavconf", json_format,
+								 json_file_path);
+					printf("\n\n");
+				}
+				if (get_stats_conf) {
+					microchip_tsn_get_config(devid, "getstats", json_format,
+								 json_file_path);
 					printf("\n\n");
 				}
 			}
