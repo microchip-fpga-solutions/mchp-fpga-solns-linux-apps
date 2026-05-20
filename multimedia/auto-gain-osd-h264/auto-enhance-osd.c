@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: MIT
 /*
- *
  * Camera auto gain control and osd example application
  *
- *	Copyright (c) 2023 Microchip Inc.
- *
+ * Copyright (c) 2026 Microchip Technology Inc. and its subsidiaries.
  */
 
 #include <fcntl.h>
@@ -20,7 +18,7 @@
 #include <sys/ioctl.h>
 
 #include <linux/videodev2.h>
-#include  <linux/v4l2-controls.h>
+#include <linux/v4l2-controls.h>
 
 #define MCHP_CID_OSD_NUM                (V4L2_CID_USER_BASE | 0x100B)
 #define MCHP_CID_COMPRESSION_RATIO      (V4L2_CID_USER_BASE | 0x100A)
@@ -67,7 +65,7 @@ int get_camera_gain(int fd)
 
 	ctrl.id = V4L2_CID_ANALOGUE_GAIN;
 	if (-1 == xioctl(fd, VIDIOC_G_CTRL, &ctrl)) {
-		perror("setting V4L2_CID_ANALOGUE_GAIN");
+		perror("getting V4L2_CID_ANALOGUE_GAIN");
 		return -1;
 	}
 
@@ -80,11 +78,11 @@ int get_intensity_average(int fd)
 
 	ctrl.id = MCHP_CID_RGB_SUM;
 	if (-1 == xioctl(fd, VIDIOC_S_CTRL, &ctrl)) {
-		perror("getting V4L2_CID_ANALOGUE_GAIN");
+		perror("setting MCHP_CID_RGB_SUM");
 		return -1;
 	}
 	if (-1 == xioctl(fd, VIDIOC_G_CTRL, &ctrl)) {
-		perror("getting V4L2_CID_ANALOGUE_GAIN");
+		perror("getting MCHP_CID_RGB_SUM");
 		return -1;
 	}
 	return ctrl.value;
@@ -121,11 +119,11 @@ static void mchp_dscmi_gain_cal(int fd, uint32_t total_sum)
 {
 	int div = MCHP_MAX_WIDTH * MCHP_MAX_HEIGHT * 2;
 	uint32_t total_average;
-	const uint16_t hs_threshold_high = (MCHP_GAIN_AVERAGE + MCHP_HYSTERESIS_GAIN);
-	const uint16_t hs_threshold_low = (MCHP_GAIN_AVERAGE - MCHP_HYSTERESIS_GAIN);
-	static uint16_t last_step;
-	uint16_t step;
-	uint16_t in_gain;
+	const int hs_threshold_high = (MCHP_GAIN_AVERAGE + MCHP_HYSTERESIS_GAIN);
+	const int hs_threshold_low = (MCHP_GAIN_AVERAGE - MCHP_HYSTERESIS_GAIN);
+	static int last_step;
+	int step;
+	int in_gain;
 
 	total_average = total_sum / div;
 
@@ -135,13 +133,12 @@ static void mchp_dscmi_gain_cal(int fd, uint32_t total_sum)
 	 * the threshold value then the gain will be step down by one.
 	 */
 
-	if (total_average < hs_threshold_low)
+	if (total_average < (uint32_t)hs_threshold_low)
 		step = 1;
+	else if (total_average > (uint32_t)hs_threshold_high)
+		step = -1;
 	else
-		if (total_average > hs_threshold_high)
-			step = -1;
-		else
-			step = 0;
+		step = 0;
 
 	if (!step)
 		return;
@@ -217,7 +214,7 @@ int main(int argc, char *argv[])
 
 			ret = set_osd_compression_ratio(video0, compression_ratio_osd);
 			if (ret < 0)
-				return ret;
+				break;
 		}
 
 		if (auto_gain_loop) {
@@ -225,7 +222,7 @@ int main(int argc, char *argv[])
 			if (ret > 0)
 				mchp_dscmi_gain_cal(video0, ret);
 			else
-				return ret;
+				break;
 		}
 
 		usleep(100000);
