@@ -1,3 +1,10 @@
+#!/bin/sh
+#
+# Copyright (c) 2026 Microchip Technology Inc. and its subsidiaries.
+#
+# SPDX-License-Identifier: MIT
+#
+
 media-ctl -v -V '"imx334 0-001a":0 [fmt:SRGGB10_1X10/1920x1080 field:none colorspace:srgb xfer:none]' -d /dev/media0
 media-ctl -v -V '"60001000.csi2rx":1 [fmt:SRGGB10_1X10/1920x1080 field:none colorspace:srgb xfer:none]' -d /dev/media0
 
