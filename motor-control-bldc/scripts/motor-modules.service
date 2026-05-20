@@ -1,0 +1,13 @@
+[Unit]
+Description=Load Motor Control IIO Modules
+DefaultDependencies=no
+Before=sysinit.target
+After=systemd-modules-load.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/microchip/motor-control-bldc/scripts/load-motor-modules.sh load
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target
