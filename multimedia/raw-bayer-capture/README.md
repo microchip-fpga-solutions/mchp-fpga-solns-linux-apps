@@ -59,13 +59,13 @@ bootm go;
 ## Command to capture JPG image with 1280x720 resolution
 
 ```sh
-/opt/microchip/multimedia/v4l2/fswebcam_1280x720.sh
+/opt/microchip/multimedia/raw-bayer-capture/fswebcam_1280x720.sh
 ```
 
 A successful execution should look like:
 
 ```text
-root@mpfs-video-kit:~# /opt/microchip/multimedia/v4l2/fswebcam_1280x720.sh
+root@mpfs-video-kit:~# /opt/microchip/multimedia/raw-bayer-capture/fswebcam_1280x720.sh
 Opening media device /dev/media0
 Enumerating entities
 looking up device: 81:0
@@ -102,13 +102,13 @@ root@mpfs-video-kit:~#
 ## Command to capture JPG image with 1920x1080 resolution
 
 ```sh
-/opt/microchip/multimedia/v4l2/fswebcam_1920x1080.sh
+/opt/microchip/multimedia/raw-bayer-capture/fswebcam_1920x1080.sh
 ```
 
 A successful execution should look like:
 
 ```text
-root@mpfs-video-kit:~# /opt/microchip/multimedia/v4l2/fswebcam_1920x1080.sh
+root@mpfs-video-kit:~# /opt/microchip/multimedia/raw-bayer-capture/fswebcam_1920x1080.sh
 Opening media device /dev/media0
 Enumerating entities
 looking up device: 81:0
@@ -145,13 +145,13 @@ root@mpfs-video-kit:~#
 ## Save 10 raw frames from the camera with 1280x720 resolution
 
 ```sh
-/opt/microchip/multimedia/v4l2/imx334_1280x720.sh
+/opt/microchip/multimedia/raw-bayer-capture/imx334_1280x720.sh
 ```
 
 A successful execution should look like:
 
 ```text
-root@mpfs-video-kit:~# /opt/microchip/multimedia/v4l2/imx334_1280x720.sh
+root@mpfs-video-kit:~# /opt/microchip/multimedia/raw-bayer-capture/imx334_1280x720.sh
 Opening media device /dev/media0
 Enumerating entities
 looking up device: 81:0
@@ -179,13 +179,13 @@ root@mpfs-video-kit:~#
 ## Save 10 raw frames from the camera with 1920x1080 resolution
 
 ```sh
-/opt/microchip/multimedia/v4l2/imx334_1920x1080.sh
+/opt/microchip/multimedia/raw-bayer-capture/imx334_1920x1080.sh
 ```
 
 A successful execution should look like:
 
 ```text
-root@mpfs-video-kit:~# /opt/microchip/multimedia/v4l2/imx334_1920x1080.sh
+root@mpfs-video-kit:~# /opt/microchip/multimedia/raw-bayer-capture/imx334_1920x1080.sh
 Opening media device /dev/media0
 Enumerating entities
 looking up device: 81:0
