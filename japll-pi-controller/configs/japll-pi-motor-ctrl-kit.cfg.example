@@ -1,0 +1,17 @@
+#
+# PI controller configuration for PolarFire SoC Motor Control Kit
+# (CCC - Clock Conditioning Circuitry as clock source)
+#
+# To use: copy this file to japll-pi.cfg
+#   cp configs/japll-pi-motor-ctrl-kit.cfg.example configs/japll-pi.cfg
+#
+clock_source            ccc
+k_proportional          0.9
+k_integral              0.9
+delta_time              0.125
+set_point               0
+pi_enable               1
+japll_wr_enable         1
+board_ref_clk_freq      125.0
+eth_interface           eth1
+ptp4l_config            ./configs/gPTP.cfg

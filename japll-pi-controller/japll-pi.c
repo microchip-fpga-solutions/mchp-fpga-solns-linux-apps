@@ -23,6 +23,14 @@
 #include "print.h"
 
 /******************************************************************
+ * Clock source types
+ ******************************************************************/
+enum clock_source_type {
+	CLK_SRC_TRANSCEIVER = 0,  /* Transceiver JAPLL (e.g., Video Kit) */
+	CLK_SRC_CCC,              /* CCC - Clock Conditioning Circuitry (e.g., Motor Control Kit) */
+};
+
+/******************************************************************
  * Configuration File parameters and PI Controller related
  ******************************************************************/
 #define INITIAL_PPB_SETTLE_COUNT      1
@@ -38,6 +46,7 @@ struct g_pi_conf_t {
 	float  board_ref_clk_freq;  /* reference clock frequency to JAPLL */
 	char   eth_interface[10];   /* ethernet driver interface for input to ptp4l command */
 	char   ptp4l_config[50];    /* filename along with path for input to ptp4l command */
+	enum clock_source_type clock_source; /* clock source: transceiver or ccc */
 };
 
 struct g_pi_conf_t g_pi_conf = {
@@ -49,28 +58,43 @@ struct g_pi_conf_t g_pi_conf = {
 	.delta_time = 0.0,
 	.board_ref_clk_freq = 0.0,
 	.eth_interface[0] = '\0',
-	.ptp4l_config[0] = '\0'
+	.ptp4l_config[0] = '\0',
+	.clock_source = CLK_SRC_TRANSCEIVER
 };
 
 /******************************************************************
- * JAPLL configuration parameters and related
+ * JAPLL/CCC configuration parameters and related
  ******************************************************************/
 #define UIO_0_DEVICE                   "/dev/uio0"
 #define MMAP_SIZE                      0x100
 
+/* Transceiver JAPLL register definitions */
 #define JAPLL_9_INT_PRESET             0xE         /* Reg Offset:0x38 / sizeof(int) */
 #define JAPLL_8_FRAC_PRESET            0xD         /* Reg Offset:0x34 / sizeof(int) */
 #define JAPLL_8_PRESET_DISABLE         0xFEFFFFFF  /* Disabling TXPLL_JA_PRESET_EN (bit:24) Reg */
 #define JAPLL_8_HOLD_ENABLE            0x02000000  /* Enabling TXPLL_JA_HOLD_EN (bit:25) Reg */
 /* Enabling TXPLL_JA_HOLD (bit:25) and TXPLL_JA_PRESET_EN (bit:24) Regs */
 #define JAPLL_8_HOLD_PRESET_ENABLE     0x03000000
-/* To read only 24-29 bits from register */
-#define TXPLL_REF_DIV(x)               ((x & 0x3F000000) >> 24)
-#define TXPLL_DIV_2                    0x5         /* Reg Offset : 0x14 / sizeof(int) */
+/* To read only 24-29 bits from register (Transceiver) */
+#define TXPLL_REF_DIV_XCVR(x)         ((x & 0x3F000000) >> 24)
+#define TXPLL_DIV_2_XCVR              0x5         /* Reg Offset : 0x14 / sizeof(int) */
+
+/* CCC register definitions */
+#define CCC_FRACN_ENABLE               0x3         /* Reg Offset : 0xC / sizeof(int) */
+#define CCC_INT_PRESET                 0xB         /* Reg Offset : 0x2C / sizeof(int) */
+#define CCC_FRAC_PRESET                0x9         /* Reg Offset : 0x24 / sizeof(int) */
+/* To read only 8-13 bits from register (CCC) */
+#define TXPLL_REF_DIV_CCC(x)          ((x & 0x3F00) >> 8)
+#define TXPLL_DIV_2_CCC               0x2         /* Reg Offset : 0x08 / sizeof(int) */
+#define CCC_INT_MASK                   0xFFF       /* to get [11:0] bits value */
+#define CCC_FRAC_MASK                  0x3FFFFFC0  /* to get [29:6] bits value */
+
+/* Common definitions */
 #define FRAC_DIVIDER                   1000000000.0
 #define TSU_CLK_FREQ                   125.0
-#define BIT_CLK_FREQ_MULT              (10 * 2)
-#define FRAC_TO_JAPLL_FRAC(x)          ((x) * pow(2, JAPLL_FRAC_WIDTH_BITS))
+#define BIT_CLK_FREQ_MULT_XCVR        (10 * 2)
+#define BIT_CLK_FREQ_MULT_CCC         (10 * 4)
+#define FRAC_TO_JAPLL_FRAC(x)         ((x) * pow(2, JAPLL_FRAC_WIDTH_BITS))
 #define JAPLL_INT_WIDTH_BITS           12
 #define JAPLL_FRAC_WIDTH_BITS          24
 
@@ -82,6 +106,8 @@ struct g_japll_t {
 	bool     is_int_written;      /* ensure integer has been written earlier */
 	bool     is_frac_written;     /* ensure fraction has been written earlier */
 	double   japll_preset_ppb_0;  /* indicate preset value of JAPLL for PPB value 0 */
+	int      pre_integer;         /* to store default integer register value (CCC) */
+	int      pre_fraction;        /* to store default fraction register value (CCC) */
 	int      japll_wr_enable;     /* indicate use of JAPLL functionality */
 };
 
@@ -93,6 +119,8 @@ struct g_japll_t g_japll = {
 	.is_int_written = false,
 	.is_frac_written = false,
 	.japll_preset_ppb_0 = 0.0,
+	.pre_integer = 0,
+	.pre_fraction = 0,
 	.japll_wr_enable = 1
 };
 
@@ -147,6 +175,13 @@ int get_pi_configuration(void)
 			fscanf(fp, "%49s", word);
 			strncat(g_pi_conf.ptp4l_config, word, sizeof(g_pi_conf.ptp4l_config) - 1);
 			pr_info("ptp4l_config : %s", g_pi_conf.ptp4l_config);
+		} else if (!(strcmp(word, "clock_source"))) {
+			fscanf(fp, "%49s", word);
+			if (!(strcmp(word, "ccc")))
+				g_pi_conf.clock_source = CLK_SRC_CCC;
+			else
+				g_pi_conf.clock_source = CLK_SRC_TRANSCEIVER;
+			pr_info("clock_source : %s (%d)", word, g_pi_conf.clock_source);
 		}
 	}
 
@@ -242,15 +277,32 @@ void calculate_japll_presets(double ppb)
 void calculate_japll_initial_presets(void)
 {
 	int japll_ref_div = 0;
+	int bit_clk_freq_mult;
+	int txpll_div_2_offset;
+
+	if (g_pi_conf.clock_source == CLK_SRC_CCC) {
+		bit_clk_freq_mult = BIT_CLK_FREQ_MULT_CCC;
+		txpll_div_2_offset = TXPLL_DIV_2_CCC;
+	} else {
+		bit_clk_freq_mult = BIT_CLK_FREQ_MULT_XCVR;
+		txpll_div_2_offset = TXPLL_DIV_2_XCVR;
+	}
 
 	/* Step-1: Calculate total preset for ppb_0 */
 	/* read TXPLL_REF_DIV register */
-	japll_ref_div = *(g_japll.mem_ptr0 + TXPLL_DIV_2);
+	japll_ref_div = *(g_japll.mem_ptr0 + txpll_div_2_offset);
 
 	/* JAPLL Base Preset value is the present value (integer + frac) for PPB = 0 */
-	g_japll.japll_preset_ppb_0 =
-		(TSU_CLK_FREQ * BIT_CLK_FREQ_MULT * TXPLL_REF_DIV(japll_ref_div))
-		/ g_pi_conf.board_ref_clk_freq;
+	if (g_pi_conf.clock_source == CLK_SRC_CCC) {
+		g_japll.japll_preset_ppb_0 =
+			(TSU_CLK_FREQ * bit_clk_freq_mult * TXPLL_REF_DIV_CCC(japll_ref_div))
+			/ g_pi_conf.board_ref_clk_freq;
+	} else {
+		g_japll.japll_preset_ppb_0 =
+			(TSU_CLK_FREQ * bit_clk_freq_mult * TXPLL_REF_DIV_XCVR(japll_ref_div))
+			/ g_pi_conf.board_ref_clk_freq;
+	}
+
 	pr_info("step 1: japll_preset_total_ppb_0 = %.8f", g_japll.japll_preset_ppb_0);
 
 	/* Step-2: Calculate int preset for ppb_0 */
@@ -262,6 +314,28 @@ void calculate_japll_initial_presets(void)
 	/* Remaining part is frac preset, in the order of 24 bits */
 	g_japll.fraction = FRAC_TO_JAPLL_FRAC(g_japll.japll_preset_ppb_0 - g_japll.integer);
 	pr_info("step 3: japll_preset_frac = 0x%x", g_japll.fraction);
+
+	/* CCC-specific: save the existing register values for bit-preserving writes */
+	if (g_pi_conf.clock_source == CLK_SRC_CCC) {
+		g_japll.pre_integer = *(g_japll.mem_ptr0 + CCC_INT_PRESET);
+		pr_debug("pre_integer : 0x%x", g_japll.pre_integer);
+		/* to get remaining bits value of register apart from [11:0] */
+		g_japll.pre_integer = g_japll.pre_integer & ~(CCC_INT_MASK);
+
+		g_japll.pre_fraction = *(g_japll.mem_ptr0 + CCC_FRAC_PRESET);
+		pr_debug("pre_fraction : 0x%x", g_japll.pre_fraction);
+		/* to get remaining bits value of register apart from [29:6] */
+		g_japll.pre_fraction = g_japll.pre_fraction & ~(CCC_FRAC_MASK);
+	}
+}
+
+/*
+ * CCC-specific: configure initial fracn_en register with b0 : 1
+ */
+void configure_ccc_initial(void)
+{
+	*(g_japll.mem_ptr0 + CCC_FRACN_ENABLE) = 0x1;
+	pr_debug("[READ][CCC_FRACN_ENABLE Reg]: 0x%x", *(g_japll.mem_ptr0 + CCC_FRACN_ENABLE));
 }
 
 int configure_japll(void)
@@ -271,8 +345,19 @@ int configure_japll(void)
 			pr_warning("g_japll.integer: 0x%x exceeding %d bits, msb's will be discarded!",
 					g_japll.integer, JAPLL_INT_WIDTH_BITS);
 
-		*(g_japll.mem_ptr0 + JAPLL_9_INT_PRESET) = g_japll.integer;
-		pr_debug("[Write][JAPLL_9_INT_PRESET Reg]: 0x%x", g_japll.integer);
+		if (g_pi_conf.clock_source == CLK_SRC_CCC) {
+			/* CCC: write only [11:0] bits in CCC_INT_PRESET register */
+			*(g_japll.mem_ptr0 + CCC_INT_PRESET) =
+				g_japll.pre_integer | (g_japll.integer & CCC_INT_MASK);
+			pr_debug("[Write][CCC_INT_PRESET Reg]: 0x%x",
+					g_japll.pre_integer | (g_japll.integer & CCC_INT_MASK));
+			pr_debug("[READ][CCC_INT_PRESET Reg]: 0x%x",
+					*(g_japll.mem_ptr0 + CCC_INT_PRESET));
+		} else {
+			/* Transceiver: direct write to JAPLL_9_INT_PRESET */
+			*(g_japll.mem_ptr0 + JAPLL_9_INT_PRESET) = g_japll.integer;
+			pr_debug("[Write][JAPLL_9_INT_PRESET Reg]: 0x%x", g_japll.integer);
+		}
 
 		g_japll.is_int_written = true;
 	}
@@ -283,24 +368,36 @@ int configure_japll(void)
 					g_japll.fraction, JAPLL_FRAC_WIDTH_BITS);
 		}
 
-		/* Step 1: Ensure TXPLL_JA_PRESET_EN is disabled, TXPLL_JA_HOLD is enabled,
-		 * then copy the fractional value.
-		 */
-		*(g_japll.mem_ptr0 + JAPLL_8_FRAC_PRESET) =
-			((g_japll.fraction & JAPLL_8_PRESET_DISABLE) | JAPLL_8_HOLD_ENABLE);
-		pr_debug("[Write][JAPLL_8_FRAC_PRESET Reg] Preset Disabled : 0x%x",
-				(g_japll.fraction & JAPLL_8_PRESET_DISABLE));
-		pr_debug("[Write][JAPLL_8_FRAC_PRESET Reg] Preset Disabled, Hold Enabled: 0x%x",
-				((g_japll.fraction & JAPLL_8_PRESET_DISABLE)
-				 | JAPLL_8_HOLD_ENABLE));
+		if (g_pi_conf.clock_source == CLK_SRC_CCC) {
+			/* CCC: write only [29:6] bits in CCC_FRAC_PRESET register */
+			int frac_val = g_japll.pre_fraction |
+				((g_japll.fraction << 6) & CCC_FRAC_MASK);
+			*(g_japll.mem_ptr0 + CCC_FRAC_PRESET) = frac_val;
+			pr_debug("[Write][CCC_FRAC_PRESET Reg]: 0x%x", frac_val);
+			pr_debug("[READ][CCC_FRAC_PRESET Reg]: 0x%x",
+					*(g_japll.mem_ptr0 + CCC_FRAC_PRESET));
+		} else {
+			/* Transceiver: 2-step write with hold/preset enable sequence */
 
-		/* Step 2: Enable both TXPLL_JA_HOLD and TXPLL_JA_PRESET_EN,
-		 * along with retaining the fractional value,
-		 */
-		*(g_japll.mem_ptr0 + JAPLL_8_FRAC_PRESET) =
-			(g_japll.fraction | JAPLL_8_HOLD_PRESET_ENABLE);
-		pr_debug("[Write][JAPLL_8_FRAC_PRESET Reg] Hold and Preset Enabled: 0x%x",
-				(g_japll.fraction | JAPLL_8_HOLD_PRESET_ENABLE));
+			/* Step 1: Ensure TXPLL_JA_PRESET_EN is disabled, TXPLL_JA_HOLD is enabled,
+			 * then copy the fractional value.
+			 */
+			*(g_japll.mem_ptr0 + JAPLL_8_FRAC_PRESET) =
+				((g_japll.fraction & JAPLL_8_PRESET_DISABLE) | JAPLL_8_HOLD_ENABLE);
+			pr_debug("[Write][JAPLL_8_FRAC_PRESET Reg] Preset Disabled : 0x%x",
+					(g_japll.fraction & JAPLL_8_PRESET_DISABLE));
+			pr_debug("[Write][JAPLL_8_FRAC_PRESET Reg] Preset Disabled, Hold Enabled: 0x%x",
+					((g_japll.fraction & JAPLL_8_PRESET_DISABLE)
+					 | JAPLL_8_HOLD_ENABLE));
+
+			/* Step 2: Enable both TXPLL_JA_HOLD and TXPLL_JA_PRESET_EN,
+			 * along with retaining the fractional value.
+			 */
+			*(g_japll.mem_ptr0 + JAPLL_8_FRAC_PRESET) =
+				(g_japll.fraction | JAPLL_8_HOLD_PRESET_ENABLE);
+			pr_debug("[Write][JAPLL_8_FRAC_PRESET Reg] Hold and Preset Enabled: 0x%x",
+					(g_japll.fraction | JAPLL_8_HOLD_PRESET_ENABLE));
+		}
 
 		g_japll.is_frac_written = true;
 	}
@@ -426,6 +523,8 @@ int main(void)
 		 * Preset values, the respective flags i.e., g_japll.is_int_written and
 		 * g_japll.is_frac_written can be set here, before calling configure_japll().
 		 */
+		if (g_pi_conf.clock_source == CLK_SRC_CCC)
+			configure_ccc_initial();
 	}
 
 	/* Launch ptp4l */

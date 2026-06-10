@@ -1,8 +1,15 @@
 # PolarFire SoC JAPLL PI Controller Application
 
-This example demonstrates how to run the japll-pi-controller application to
-adjust the frequency of TSU clock on the PolarFire SoC Video Kit as per master clock,
-using the PPB offsets, which are part of the incoming PTP packets.
+This application adjusts the frequency of the TSU (Time Stamp Unit) clock on
+PolarFire SoC kits as per the master clock, using PPB offsets from incoming PTP
+packets.
+
+## Supported Kits
+
+| Kit | Clock Source | Config Value |
+|-----|-------------|--------------|
+| PolarFire SoC Video Kit | Transceiver JAPLL | `transceiver` |
+| PolarFire SoC Motor Control Kit | CCC (Clock Conditioning Circuitry) | `ccc` |
 
 ## Pre-requisites
 
@@ -17,15 +24,36 @@ ptp4l -v
 
 ## Configuration
 
-To modify the configuration, Open japll-pi.cfg with following command:
+To modify the configuration, open japll-pi.cfg:
 
 ```text
-root@mpfs-video-kit:/opt/microchip/japll-pi-controller# vim /opt/microchip/japll-pi-controller/configs/japll-pi.cfg
+root@mpfs:/opt/microchip/japll-pi-controller# vim /opt/microchip/japll-pi-controller/configs/japll-pi.cfg
 ```
 
-Tune the parameters according to your usecase and Solution requirements:
+### Selecting the Clock Source (Kit Selection)
+
+The `clock_source` parameter in `configs/japll-pi.cfg` determines which clock
+hardware path is used. Set it according to your target kit:
 
 ```text
+clock_source            ccc            # For Motor Control Kit (CCC clock)
+clock_source            transceiver    # For Video Kit (Transceiver JAPLL)
+```
+
+Example config files are provided for each kit:
+- `configs/japll-pi-video-kit.cfg.example` - Video Kit configuration
+- `configs/japll-pi-motor-ctrl-kit.cfg.example` - Motor Control Kit configuration
+
+To use an example config, copy it over the active config file:
+
+```text
+cp configs/japll-pi-motor-ctrl-kit.cfg.example configs/japll-pi.cfg
+```
+
+### Tuning Parameters
+
+```text
+     clock_source       ccc/transceiver     -> select clock source for the target kit
      k_proportional     0.9                 -> proportional constant
      k_integral         0.9                 -> integral constant
      delta_time         0.125               -> time frame between two packets
@@ -44,11 +72,9 @@ Note: The delta_time parameter is inversely proportional to the incoming packets
 The following steps need to be performed to launch the application:
 
 ```text
-root@mpfs-video-kit:~# cd /opt/microchip/japll-pi-controller
-```
+root@mpfs:~# cd /opt/microchip/japll-pi-controller
 
-```text
-root@mpfs-video-kit:/opt/microchip/japll-pi-controller# ./japll-pi
+root@mpfs:/opt/microchip/japll-pi-controller# ./japll-pi
 ```
 
 ## Terminating the Application
@@ -62,5 +88,5 @@ If needed, the application can be rebuilt by issuing `make clean` and then
 `make` command from the same directory.
 
 ```text
-root@mpfs-video-kit:/opt/microchip/japll-pi-controller# make clean && make
+root@mpfs:/opt/microchip/japll-pi-controller# make clean && make
 ```
