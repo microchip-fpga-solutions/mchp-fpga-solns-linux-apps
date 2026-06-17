@@ -12,6 +12,7 @@ Linux multimedia applications and demo scripts for the PolarFire SoC FPGA (MPFS)
 | [rgb-jpeg-capture/](rgb-jpeg-capture/) | Single JPEG frame capture from the RGB video pipeline (CSI-2 RX, RGB scaler) via GStreamer. |
 | [drm-display-tests/](drm-display-tests/) | Shell scripts for testing DRM/KMS display modes, planes, alpha blending, and GStreamer `kmssink`. |
 | [auto-gain-osd-h264/](auto-gain-osd-h264/) | C application for automatic camera gain control based on image enhancement feedback, with H.264 compression ratio displayed on OSD. |
+| [drm-games/](drm-games/) | 16 DRM/KMS arcade game demos using atomic multi-plane rendering (primary, overlay, and cursor planes). |
 
 ## Hardware Requirements
 
