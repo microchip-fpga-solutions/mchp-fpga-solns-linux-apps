@@ -41,6 +41,13 @@ media-ctl -v -V '"60002000.rgb-scaler":0 [fmt:RBG888_1X24/1920x1080  crop: (0,0)
 media-ctl -v -V '"6000a000.generic-video-pipeline":0 [fmt:RBG888_1X24/1280x720 field:none colorspace:srgb]' -d /dev/media0
 v4l2-ctl -d /dev/video0 --set-ctrl=analogue_gain=80
 v4l2-ctl -d /dev/video0 --set-ctrl=vertical_blanking=300
+
+v4l2-ctl -d /dev/video0 --set-ctrl=contrast=0x9A
+v4l2-ctl -d /dev/video0 --set-ctrl=brightness=0x89
+v4l2-ctl -d /dev/video0 --set-ctrl=gain_red=0x7A
+v4l2-ctl -d /dev/video0 --set-ctrl=gain_green=0x66
+v4l2-ctl -d /dev/video0 --set-ctrl=gain_blue=0x8A
+
 v4l2-ctl --device /dev/video0 --set-fmt-video=width=1280,height=720,pixelformat=XR24
 
 gst-launch-1.0 -v v4l2src device=/dev/video0  ! video/x-raw, width=1280, height=720 ! videoconvert ! kmssink driver-name=mpfs-dpsub plane-id=$PRIMARY_PLANE_ID skip-vsync=true

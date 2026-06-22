@@ -15,5 +15,11 @@ media-ctl -v -V '"6000a000.generic-video-pipeline":0 [fmt:RBG888_1X24/1280x720 f
 v4l2-ctl -d /dev/video0 --set-ctrl=analogue_gain=80
 v4l2-ctl -d /dev/video0 --set-ctrl=vertical_blanking=1170
 
+v4l2-ctl -d /dev/video0 --set-ctrl=contrast=0x9A
+v4l2-ctl -d /dev/video0 --set-ctrl=brightness=0x89
+v4l2-ctl -d /dev/video0 --set-ctrl=gain_red=0x7A
+v4l2-ctl -d /dev/video0 --set-ctrl=gain_green=0x66
+v4l2-ctl -d /dev/video0 --set-ctrl=gain_blue=0x8A
+
 # Capture a single JPEG frame from the camera via V4L2
 gst-launch-1.0 -v v4l2src device=/dev/video0 num-buffers=1 ! video/x-raw, width=1280, height=720 ! videoconvert ! jpegenc ! filesink location=frame.jpeg
