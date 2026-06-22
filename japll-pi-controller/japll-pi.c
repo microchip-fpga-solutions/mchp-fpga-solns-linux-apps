@@ -26,7 +26,7 @@
  * Clock source types
  ******************************************************************/
 enum clock_source_type {
-	CLK_SRC_TRANSCEIVER = 0,  /* Transceiver JAPLL (e.g., Video Kit) */
+	CLK_SRC_XCVR = 0,  /* Transceiver JAPLL (e.g., Video Kit) */
 	CLK_SRC_CCC,              /* CCC - Clock Conditioning Circuitry (e.g., Motor Control Kit) */
 };
 
@@ -46,7 +46,7 @@ struct g_pi_conf_t {
 	float  board_ref_clk_freq;  /* reference clock frequency to JAPLL */
 	char   eth_interface[10];   /* ethernet driver interface for input to ptp4l command */
 	char   ptp4l_config[50];    /* filename along with path for input to ptp4l command */
-	enum clock_source_type clock_source; /* clock source: transceiver or ccc */
+	enum clock_source_type clock_source; /* clock source: xcvr or ccc */
 };
 
 struct g_pi_conf_t g_pi_conf = {
@@ -59,7 +59,7 @@ struct g_pi_conf_t g_pi_conf = {
 	.board_ref_clk_freq = 0.0,
 	.eth_interface[0] = '\0',
 	.ptp4l_config[0] = '\0',
-	.clock_source = CLK_SRC_TRANSCEIVER
+	.clock_source = CLK_SRC_XCVR
 };
 
 /******************************************************************
@@ -69,12 +69,12 @@ struct g_pi_conf_t g_pi_conf = {
 #define MMAP_SIZE                      0x100
 
 /* Transceiver JAPLL register definitions */
-#define JAPLL_9_INT_PRESET             0xE         /* Reg Offset:0x38 / sizeof(int) */
-#define JAPLL_8_FRAC_PRESET            0xD         /* Reg Offset:0x34 / sizeof(int) */
-#define JAPLL_8_PRESET_DISABLE         0xFEFFFFFF  /* Disabling TXPLL_JA_PRESET_EN (bit:24) Reg */
-#define JAPLL_8_HOLD_ENABLE            0x02000000  /* Enabling TXPLL_JA_HOLD_EN (bit:25) Reg */
+#define XCVR_INT_PRESET                0xE         /* Reg Offset:0x38 / sizeof(int) */
+#define XCVR_FRAC_PRESET               0xD         /* Reg Offset:0x34 / sizeof(int) */
+#define XCVR_PRESET_DISABLE            0xFEFFFFFF  /* Disabling TXPLL_JA_PRESET_EN (bit:24) Reg */
+#define XCVR_HOLD_ENABLE               0x02000000  /* Enabling TXPLL_JA_HOLD_EN (bit:25) Reg */
 /* Enabling TXPLL_JA_HOLD (bit:25) and TXPLL_JA_PRESET_EN (bit:24) Regs */
-#define JAPLL_8_HOLD_PRESET_ENABLE     0x03000000
+#define XCVR_HOLD_PRESET_ENABLE        0x03000000
 /* To read only 24-29 bits from register (Transceiver) */
 #define TXPLL_REF_DIV_XCVR(x)         ((x & 0x3F000000) >> 24)
 #define TXPLL_DIV_2_XCVR              0x5         /* Reg Offset : 0x14 / sizeof(int) */
@@ -180,7 +180,7 @@ int get_pi_configuration(void)
 			if (!(strcmp(word, "ccc")))
 				g_pi_conf.clock_source = CLK_SRC_CCC;
 			else
-				g_pi_conf.clock_source = CLK_SRC_TRANSCEIVER;
+				g_pi_conf.clock_source = CLK_SRC_XCVR;
 			pr_info("clock_source : %s (%d)", word, g_pi_conf.clock_source);
 		}
 	}
@@ -354,9 +354,9 @@ int configure_japll(void)
 			pr_debug("[READ][CCC_INT_PRESET Reg]: 0x%x",
 					*(g_japll.mem_ptr0 + CCC_INT_PRESET));
 		} else {
-			/* Transceiver: direct write to JAPLL_9_INT_PRESET */
-			*(g_japll.mem_ptr0 + JAPLL_9_INT_PRESET) = g_japll.integer;
-			pr_debug("[Write][JAPLL_9_INT_PRESET Reg]: 0x%x", g_japll.integer);
+			/* Transceiver: direct write to XCVR_INT_PRESET */
+			*(g_japll.mem_ptr0 + XCVR_INT_PRESET) = g_japll.integer;
+			pr_debug("[Write][XCVR_INT_PRESET Reg]: 0x%x", g_japll.integer);
 		}
 
 		g_japll.is_int_written = true;
@@ -382,21 +382,21 @@ int configure_japll(void)
 			/* Step 1: Ensure TXPLL_JA_PRESET_EN is disabled, TXPLL_JA_HOLD is enabled,
 			 * then copy the fractional value.
 			 */
-			*(g_japll.mem_ptr0 + JAPLL_8_FRAC_PRESET) =
-				((g_japll.fraction & JAPLL_8_PRESET_DISABLE) | JAPLL_8_HOLD_ENABLE);
-			pr_debug("[Write][JAPLL_8_FRAC_PRESET Reg] Preset Disabled : 0x%x",
-					(g_japll.fraction & JAPLL_8_PRESET_DISABLE));
-			pr_debug("[Write][JAPLL_8_FRAC_PRESET Reg] Preset Disabled, Hold Enabled: 0x%x",
-					((g_japll.fraction & JAPLL_8_PRESET_DISABLE)
-					 | JAPLL_8_HOLD_ENABLE));
+			*(g_japll.mem_ptr0 + XCVR_FRAC_PRESET) =
+				((g_japll.fraction & XCVR_PRESET_DISABLE) | XCVR_HOLD_ENABLE);
+			pr_debug("[Write][XCVR_FRAC_PRESET Reg] Preset Disabled : 0x%x",
+					(g_japll.fraction & XCVR_PRESET_DISABLE));
+			pr_debug("[Write][XCVR_FRAC_PRESET Reg] Preset Disabled, Hold Enabled: 0x%x",
+					((g_japll.fraction & XCVR_PRESET_DISABLE)
+					 | XCVR_HOLD_ENABLE));
 
 			/* Step 2: Enable both TXPLL_JA_HOLD and TXPLL_JA_PRESET_EN,
 			 * along with retaining the fractional value.
 			 */
-			*(g_japll.mem_ptr0 + JAPLL_8_FRAC_PRESET) =
-				(g_japll.fraction | JAPLL_8_HOLD_PRESET_ENABLE);
-			pr_debug("[Write][JAPLL_8_FRAC_PRESET Reg] Hold and Preset Enabled: 0x%x",
-					(g_japll.fraction | JAPLL_8_HOLD_PRESET_ENABLE));
+			*(g_japll.mem_ptr0 + XCVR_FRAC_PRESET) =
+				(g_japll.fraction | XCVR_HOLD_PRESET_ENABLE);
+			pr_debug("[Write][XCVR_FRAC_PRESET Reg] Hold and Preset Enabled: 0x%x",
+					(g_japll.fraction | XCVR_HOLD_PRESET_ENABLE));
 		}
 
 		g_japll.is_frac_written = true;
@@ -422,8 +422,8 @@ int japll_main(double ppb)
 	} else if (iterations == INITIAL_PPB_SETTLE_COUNT) {
 		/* Once PPB is stable, we take it as input for JAPLL fraction PRESET.
 		 * The integer and frac parts were calculated once in the beginning.
-		 * The integer part is written to JAPLL_9_INT_PRESET register
-		 * while the fraction to the JAPLL_8_INT_PRESET register.
+		 * The integer part is written to XCVR_INT_PRESET register
+		 * while the fraction to the XCVR_INT_PRESET register.
 		 */
 		if (g_japll.japll_wr_enable) {
 			calculate_japll_presets(ppb);

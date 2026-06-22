@@ -6,7 +6,7 @@
 #   cp configs/japll-pi-motor-ctrl-kit.cfg.example configs/japll-pi.cfg
 #
 clock_source            ccc
-k_proportional          0.9
+k_proportional          0.6
 k_integral              0.9
 delta_time              0.125
 set_point               0

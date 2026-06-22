@@ -5,7 +5,7 @@
 # To use: copy this file to japll-pi.cfg
 #   cp configs/japll-pi-video-kit.cfg.example configs/japll-pi.cfg
 #
-clock_source            transceiver
+clock_source            xcvr
 k_proportional          0.9
 k_integral              0.9
 delta_time              0.125

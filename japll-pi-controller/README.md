@@ -8,7 +8,7 @@ packets.
 
 | Kit | Clock Source | Config Value |
 |-----|-------------|--------------|
-| PolarFire SoC Video Kit | Transceiver JAPLL | `transceiver` |
+| PolarFire SoC Video Kit | Transceiver JAPLL | `xcvr` |
 | PolarFire SoC Motor Control Kit | CCC (Clock Conditioning Circuitry) | `ccc` |
 
 ## Pre-requisites
@@ -37,7 +37,7 @@ hardware path is used. Set it according to your target kit:
 
 ```text
 clock_source            ccc            # For Motor Control Kit (CCC clock)
-clock_source            transceiver    # For Video Kit (Transceiver JAPLL)
+clock_source            xcvr           # For Video Kit (Transceiver JAPLL)
 ```
 
 Example config files are provided for each kit:
@@ -53,7 +53,7 @@ cp configs/japll-pi-motor-ctrl-kit.cfg.example configs/japll-pi.cfg
 ### Tuning Parameters
 
 ```text
-     clock_source       ccc/transceiver     -> select clock source for the target kit
+     clock_source       ccc/xcvr            -> select clock source for the target kit
      k_proportional     0.9                 -> proportional constant
      k_integral         0.9                 -> integral constant
      delta_time         0.125               -> time frame between two packets
