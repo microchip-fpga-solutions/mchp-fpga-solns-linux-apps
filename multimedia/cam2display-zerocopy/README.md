@@ -16,6 +16,8 @@ using DMA-BUF buffer sharing -- no CPU memcpy required.
 
 ## Prerequisites
 
+- DRM design programmed to the PolarFire SoC Video Kit — a FlashPro Express programming job file is available in the [Video Kit reference design](https://github.com/microchip-fpga-solutions/mpfs250-video-kit-drm)
+- Yocto WIC image (`mchp-base-image-mpfs-video-kit-drm.rootfs-xxxx.wic.gz`) with V4L2 and DRM/KMS support — available on the [releases page](https://github.com/microchip-fpga-solutions/meta-mchp-fpga-solns/releases)
 - Linux kernel with V4L2 and DRM/KMS support
 - `libdrm` development headers and pkg-config file
 - GCC toolchain (native or cross-compilation)
@@ -43,6 +45,11 @@ make clean
 ```
 
 ## Usage
+
+**Note:** The video pipeline must be configured before running `cam2display`.
+Use `media-ctl` and `v4l2-ctl` to set up the sensor format, CSI-2 receiver,
+RGB scaler, and video pipeline (see `run_demo.sh` for a complete example on the
+MPFS Video Kit).
 
 ```
 ./cam2display [-d drm_device] [-v video_device] [-h]

@@ -32,13 +32,14 @@ GStreamer (v4l2src ! videoconvert ! kmssink) - Display via mpfs-dpsub
 
 ### Hardware
 
+- DRM design programmed to the PolarFire SoC Video Kit — a FlashPro Express programming job file is available in the [Video Kit reference design](https://github.com/microchip-fpga-solutions/mpfs250-video-kit-drm)
 - PolarFire SoC FPGA (MPFS) Video Kit
 - IMX334 camera sensor module connected via CSI-2
 - HDMI display connected to the board's HDMI output
 
 ### Software
 
-- Linux with V4L2 and DRM/KMS support
+- Yocto WIC image (`mchp-base-image-mpfs-video-kit-drm.rootfs-xxxx.wic.gz`) with V4L2 and DRM/KMS support — available on the [releases page](https://github.com/microchip-fpga-solutions/meta-mchp-fpga-solns/releases)
 - `media-ctl` - Media device control utility
 - `v4l2-ctl` - V4L2 device control utility
 - `gst-launch-1.0` - GStreamer pipeline launcher

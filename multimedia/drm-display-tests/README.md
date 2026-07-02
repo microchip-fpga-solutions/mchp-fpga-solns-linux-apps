@@ -14,11 +14,13 @@ Display Subsystem (DPSUB) HDMI output. They enable debug output from
 
 ### Hardware
 
+- DRM design programmed to the PolarFire SoC Video Kit — a FlashPro Express programming job file is available in the [Video Kit reference design](https://github.com/microchip-fpga-solutions/mpfs250-video-kit-drm)
 - PolarFire SoC FPGA Video Kit (MPFS250TS)
 - HDMI display connected to the board's HDMI output
 
 ### Software
 
+- Yocto WIC image (`mchp-base-image-mpfs-video-kit-drm.rootfs-xxxx.wic.gz`) with V4L2 and DRM/KMS support — available on the [releases page](https://github.com/microchip-fpga-solutions/meta-mchp-fpga-solns/releases)
 - `modetest` utility (from `libdrm-tests` / `libdrm`)
 - `planes` utility (from `libplanes`)
 - GStreamer 1.0 with `gst-launch-1.0`, `videotestsrc`, `videoconvert`, and `kmssink` plugins
